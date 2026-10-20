@@ -74,7 +74,8 @@ function gpuQuery() {
     });
   });
 }
-setInterval(async () => { if (clients.size) sse({ t: 'metrics', cpu: cpuPercent(), gpu: await gpuQuery() }); }, 2500).unref();
+const memPercent = () => Math.round(100 * (1 - os.freemem() / os.totalmem()));
+setInterval(async () => { if (clients.size) sse({ t: 'metrics', cpu: cpuPercent(), mem: memPercent(), gpu: await gpuQuery() }); }, 2500).unref();
 
 // ---------- correo ----------
 async function openMail(cfg = CFG, secrets = SECRETS) {

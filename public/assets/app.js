@@ -48,17 +48,52 @@ function ask(title, text, okLabel = 'Aceptar', danger = false) {
   });
 }
 
-// ---------- actividad ----------
-const MAXLOG = 300;
-function addLine(lane, text, kind, ts) {
-  const log = $('log');
+// ---------- actividad y terminales ----------
+const MAXLOG = 300, MAXTERM = 500;
+function appendTo(box, ts, text, kind, max) {
   const div = document.createElement('div');
   div.innerHTML = `<span class="ts">${esc(ts)}</span><span class="k-${esc(kind)}">${esc(text)}</span>`;
-  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-  log.appendChild(div);
-  while (log.childElementCount > MAXLOG) log.firstChild.remove();
-  if (atBottom) log.scrollTop = log.scrollHeight;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.appendChild(div);
+  while (box.childElementCount > max) box.firstChild.remove();
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+function addLine(lane, text, kind, ts) {
+  appendTo($('log'), ts, text, kind, MAXLOG);
+  if (lane === 'heur') appendTo($('feed-heur'), ts, text, kind, MAXTERM);
+  else if (lane === 'llm') appendTo($('feed-llm'), ts, text, kind, MAXTERM);
+  else if (lane === 'sys') { const s = $('term-sys'); s.textContent = `[${ts}] ${text}`; s.className = `term-sys k-${kind}`; }
   if (lane === 'sys' && (kind === 'warn' || kind === 'err')) toast(text, kind);
+}
+function clearTerms() { $('feed-heur').innerHTML = ''; $('feed-llm').innerHTML = ''; $('log').innerHTML = ''; }
+
+// vista técnica: se recuerda por equipo; de entrada, encendida en pantallas grandes
+function termPref() {
+  try { const v = localStorage.getItem('nm-term'); if (v === '1' || v === '0') return v === '1'; } catch (_) {}
+  return window.matchMedia('(min-width: 1000px)').matches;
+}
+function setTerms(on, save) {
+  $('terms').hidden = !on; $('activity').hidden = on;
+  $('btnTerm').setAttribute('aria-pressed', String(on));
+  if (save) { try { localStorage.setItem('nm-term', on ? '1' : '0'); } catch (_) {} }
+  if (on) for (const id of ['feed-heur', 'feed-llm']) $(id).scrollTop = $(id).scrollHeight;
+}
+$('btnTerm').onclick = () => setTerms($('terms').hidden, true);
+
+function setMeter(bar, label, pct) {
+  const v = Math.max(0, Math.min(100, Math.round(pct)));
+  $(bar).style.width = v + '%';
+  $(bar).style.background = v > 80 ? 'var(--t-del)' : v > 50 ? 'var(--t-warn)' : 'var(--t-ok)';
+  $(label).textContent = v + '%';
+}
+function onMetrics(m) {
+  if (typeof m.cpu === 'number') setMeter('m-cpu', 'm-cpu-v', m.cpu);
+  if (typeof m.mem === 'number') setMeter('m-mem', 'm-mem-v', m.mem);
+  $('m-gpu-w').hidden = !m.gpu;
+  if (m.gpu) {
+    setMeter('m-gpu', 'm-gpu-v', m.gpu.util);
+    $('m-vram').textContent = m.gpu.vramTotal ? `${(m.gpu.vramUsed / 1024).toFixed(1)}/${(m.gpu.vramTotal / 1024).toFixed(1)} GB` : '';
+  }
 }
 
 // ---------- estado ----------
@@ -83,6 +118,7 @@ function renderMain(c) {
   const a = c.account, el = $('acct');
   el.classList.toggle('off', !a.ready);
   el.querySelector('b').textContent = a.ready ? a.email : (a.type === 'none' ? 'Conectar correo' : 'Completar cuenta');
+  $('term-model').textContent = c.model || 'sin modelo';
   renderSetup();
 }
 function aiOk() { return MAIN && (MAIN.provider === 'local' ? !!(RT && RT.ready) : MAIN.aiReady); }
@@ -324,7 +360,7 @@ async function startJob(url, body, kind) {
 }
 $('btnScan').onclick = async () => {
   if (needSetup()) return;
-  $('log').innerHTML = '';
+  clearTerms();
   await startJob('/api/scan', { daysBack: DAYS }, 'scan');
 };
 $('btnAuto').onclick = async () => {
@@ -334,7 +370,7 @@ $('btnAuto').onclick = async () => {
     `${rangeLabel(DAYS)} · ${MAIN.account.email}\nSolo se mueve a la papelera lo claramente promocional. Bancos, facturas y conversaciones se quedan.`,
     dry ? 'Simular' : 'Limpiar', !dry);
   if (!ok) return;
-  $('log').innerHTML = '';
+  clearTerms();
   await startJob('/api/autorun', { daysBack: DAYS, dureza: LEVEL, dryRun: dry, autoUnsub: $('autoUnsub').checked }, 'auto');
 };
 $('btnExec').onclick = async () => {
@@ -357,6 +393,7 @@ function connect() {
   es.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.t === 'line') addLine(m.lane, m.text, m.kind, m.ts);
+    else if (m.t === 'metrics') onMetrics(m);
     else if (m.t === 'progress') { renderProgress(m.job); if (!m.job.running) { refreshPending(); renderSenders(); } }
     else if (m.t === 'senders') upsertSenders(m.list);
     else if (m.t === 'scanstart') { senders.clear(); unsubChoice.clear(); unsubState.clear(); FILTER = 'delete'; SHOWN = 150; upsertSenders(m.senders || []); renderSenders(); }
@@ -617,7 +654,7 @@ window.noniBack = () => {
 
 // ---------- arranque ----------
 (async function boot() {
-  renderRanges(); renderLevels();
+  renderRanges(); renderLevels(); setTerms(termPref(), false);
   connect();
   try {
     const c = await api('GET', '/api/config');

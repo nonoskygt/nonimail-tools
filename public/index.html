@@ -33,6 +33,7 @@
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
   <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
   <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></symbol>
 </svg>
 
@@ -40,6 +41,7 @@
   <div class="brand"><img src="/assets/icon.svg" alt="" width="30" height="30">NoniMail <span>Cleaner</span></div>
   <div class="spacer"></div>
   <button id="acct" class="acct off" type="button"><span class="dot"></span><b>Conectar correo</b></button>
+  <button id="btnTerm" class="icon-btn" type="button" aria-label="Terminales" aria-pressed="false" title="Terminales"><svg class="icon"><use href="#i-terminal"/></svg></button>
   <button id="btnSettings" class="icon-btn" type="button" aria-label="Ajustes"><svg class="icon"><use href="#i-settings"/></svg></button>
 </header>
 
@@ -153,6 +155,19 @@
     <div class="actionbar" id="actionbar" hidden>
       <button class="btn danger lg block" id="btnExec" type="button"><svg class="icon"><use href="#i-trash"/></svg><span id="exec-txt">Mover a la papelera</span></button>
     </div>
+  </section>
+
+  <!-- terminales: lo que hace el motor, en vivo -->
+  <section class="terms" id="terms" aria-label="Terminales" hidden>
+    <div class="term">
+      <div class="term-head"><span class="term-title">lectura · heurística</span><span class="meter"><span class="meter-l">CPU</span><span class="mbar"><i id="m-cpu"></i></span><b id="m-cpu-v">—</b><span class="meter-l">RAM</span><span class="mbar"><i id="m-mem"></i></span><b id="m-mem-v">—</b></span></div>
+      <div class="term-feed" id="feed-heur" aria-live="off"></div>
+    </div>
+    <div class="term">
+      <div class="term-head"><span class="term-title">ia · <span id="term-model">…</span></span><span class="meter" id="m-gpu-w" hidden><span class="meter-l">GPU</span><span class="mbar"><i id="m-gpu"></i></span><b id="m-gpu-v">—</b><span class="vram" id="m-vram"></span></span></div>
+      <div class="term-feed" id="feed-llm" aria-live="off"></div>
+    </div>
+    <div class="term-sys" id="term-sys">listo</div>
   </section>
 </main>
 
