@@ -177,6 +177,23 @@ test('execute: borra solo los remitentes elegidos dentro del rango, respetando p
   } finally { await t.cleanup(); }
 });
 
+test('después de mover, el remitente sale de los resultados; después de simular, se queda', async () => {
+  const t = await setup();
+  try {
+    t.eng.start('scan', { daysBack: 365 });
+    await t.done();
+    const has = () => t.eng.scanSenders().some(s => s.email === 'ofertas@tienda.com');
+    assert.ok(has(), 'el análisis lo encontró');
+    t.eng.start('execute', { daysBack: 365, emails: ['ofertas@tienda.com'], dryRun: true });
+    await t.done();
+    assert.ok(has(), 'simular no saca nada de la lista');
+    t.eng.start('execute', { daysBack: 365, emails: ['ofertas@tienda.com'], dryRun: false });
+    await t.done();
+    assert.ok(!has(), 'ya está en la papelera: no vuelve a aparecer');
+    assert.ok(t.eng.scanSenders().length > 0, 'el resto de los resultados sigue');
+  } finally { await t.cleanup(); }
+});
+
 test('si el modelo se corta pensando, deja de pensar en ese trabajo y conserva el puntaje rápido', async () => {
   const t = await setup();
   try {

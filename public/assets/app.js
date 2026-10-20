@@ -100,6 +100,7 @@ function onMetrics(m) {
 let MAIN = null, JOB = { running: false }, RT = null, BAND = 12;
 let DAYS = 30, LEVEL = 50, FILTER = 'delete', QUERY = '', SHOWN = 150;
 let lastKind = null;
+let lastRun = null; // último Mover / Limpiar sin revisar, para repetirlo "de verdad" tras una simulación
 
 // ---------- controles de inicio ----------
 function renderRanges() {
@@ -212,8 +213,32 @@ function showDone(j) {
   $('done-sub').textContent = j.dryRun
     ? `Se moverían ${fmt(t.deleted)} correos a la papelera · ${fmt(t.kept)} se quedan`
     : `${fmt(t.deleted)} correos en la papelera · ${fmt(t.kept)} se quedan · ${fmt(t.protected)} protegidos`;
+  $('btnReal').hidden = !(j.dryRun && lastRun && t.deleted > 0);
+  toast(j.dryRun ? `Simulación: se moverían ${fmt(t.deleted)} correos` : `${fmt(t.deleted)} correos movidos a la papelera`, 'ok');
+  // en el celular el aviso queda arriba, fuera de la vista: se lleva la pantalla hasta él
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('done').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+  // lo movido ya no está en la bandeja: la lista se vuelve a pedir y esos remitentes desaparecen
+  if (j.kind === 'execute' && !j.dryRun) refreshSenders();
+}
+async function refreshSenders() {
+  try {
+    const d = await api('GET', '/api/senders');
+    senders.clear();
+    for (const s of d.senders) senders.set(s.email, s);
+    renderSenders();
+  } catch (_) {}
 }
 $('btnAgain').onclick = () => { $('done').hidden = true; $('start').hidden = false; };
+// después de simular: lo mismo, pero de verdad
+$('btnReal').onclick = async () => {
+  if (!lastRun) return;
+  const n = $('done-sub').textContent.match(/[\d.]+/);
+  if (!(await ask('¿Mover a la papelera?', `${n ? n[0] + ' correos · ' : ''}${rangeLabel(lastRun.body.daysBack)}\nSe pueden recuperar desde la Papelera.`, 'Mover', true))) return;
+  $('dryRun').checked = false;
+  const body = { ...lastRun.body, dryRun: false };
+  if (await startJob(lastRun.url, body, lastRun.kind) && lastRun.kind === 'execute') processUnsubs();
+};
 $('btnStop').onclick = async () => { $('btnStop').disabled = true; try { await api('POST', '/api/stop', {}); } catch (e) { toast(e.message, 'err'); } };
 
 // ---------- trabajo a medias ----------
@@ -355,7 +380,9 @@ async function startJob(url, body, kind) {
     const { pending } = await api('GET', '/api/jobs');
     const same = pending.find(p => p.kind === kind && p.daysBack === body.daysBack && p.dryRun === !!body.dryRun);
     if (same && !(await ask('Hay uno a medias', `Ese mismo trabajo quedó en ${same.emailsTotal ? same.percent + '%' : 'el lote ' + same.windowIdx}. Si empiezas de nuevo, se pierde ese avance.`, 'Empezar de nuevo'))) return false;
-    await api('POST', url, body); return true;
+    await api('POST', url, body);
+    lastRun = kind === 'scan' ? null : { url, body, kind };
+    return true;
   } catch (e) { toast(e.message, 'err'); return false; }
 }
 $('btnScan').onclick = async () => {
