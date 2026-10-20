@@ -3,6 +3,8 @@ package com.nonosky.nonimail;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -146,6 +148,22 @@ public class MainActivity extends Activity {
             Intent i = new Intent(MainActivity.this, NodeService.class).setAction(NodeService.ACTION_PROGRESS)
                 .putExtra("busy", busy).putExtra("pct", pct).putExtra("title", title).putExtra("text", text);
             startService(i);
+        }
+        // reporte de una limpieza: al portapapeles o a otra app (correo, WhatsApp, Drive…)
+        @JavascriptInterface public void copy(String text) {
+            ui.post(() -> {
+                ClipboardManager cm = getSystemService(ClipboardManager.class);
+                if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("NoniMail", text));
+            });
+        }
+        @JavascriptInterface public void share(String title, String text) {
+            // un Intent no aguanta textos enormes: los reportes muy largos se recortan (Copiar trae el completo)
+            String body = text.length() > 100000 ? text.substring(0, 100000) + "\n… (recortado; usa Copiar reporte para el texto completo)" : text;
+            ui.post(() -> {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, title).putExtra(Intent.EXTRA_TEXT, body);
+                startActivity(Intent.createChooser(send, title));
+            });
         }
     }
 }

@@ -43,7 +43,12 @@ function ask(title, text, okLabel = 'Aceptar', danger = false) {
   $('dlg-t').textContent = title; $('dlg-p').textContent = text || '';
   $('dlg-ok').textContent = okLabel; $('dlg-ok').className = `btn ${danger ? 'danger' : 'primary'}`;
   return new Promise((resolve) => {
-    d.onclose = () => resolve(d.returnValue === 'ok');
+    let settled = false;
+    const finish = (v) => { if (settled) return; settled = true; d.onclose = $('dlg-ok').onclick = $('dlg-no').onclick = null; resolve(v); };
+    // se responde al tocar el botón: Chromium atrasa el evento "close" hasta el próximo cuadro dibujado
+    $('dlg-ok').onclick = () => finish(true);
+    $('dlg-no').onclick = () => finish(false);
+    d.onclose = () => finish(d.returnValue === 'ok'); // Esc
     d.returnValue = ''; d.showModal(); $('dlg-ok').focus();
   });
 }
@@ -173,7 +178,7 @@ function renderProgress(j) {
     $('start').hidden = true; $('done').hidden = true; $('run').hidden = false; $('banner').hidden = true;
     $('run-title').textContent = KIND_TITLE[JOB.kind] || 'Trabajando';
     $('run-dry').hidden = !JOB.dryRun;
-    const waiting = JOB.phase === 'ia' || JOB.phase === 'conectar' || !JOB.windowCount;
+    const waiting = JOB.phase === 'ia' || JOB.phase === 'conectar' || JOB.phase === 'verificar' || !JOB.windowCount;
     $('run-bar').classList.toggle('indet', waiting);
     const p = waiting ? 0 : JOB.percent || 0;
     $('run-pct').textContent = p; $('run-bar').firstElementChild.style.width = waiting ? '' : p + '%';
@@ -181,7 +186,9 @@ function renderProgress(j) {
     $('run-count').textContent = JOB.emailsTotal ? `${fmt(JOB.emailsDone)} de ${fmt(JOB.emailsTotal)} correos` : '';
     $('run-eta').textContent = fmtEta(JOB.etaSec);
     $('run-win').textContent = JOB.windowCount > 1 ? `Lote ${JOB.windowIdx} de ${JOB.windowCount}` : '';
-    $('run-now').textContent = JOB.phase === 'ia' ? 'Preparando la IA…' : JOB.phase === 'conectar' ? 'Conectando con tu correo…' : JOB.now ? `Revisando: ${JOB.now}` : (JOB.windowLabel || '');
+    $('run-now').textContent = JOB.phase === 'ia' ? 'Preparando la IA…' : JOB.phase === 'conectar' ? 'Conectando con tu correo…'
+      : JOB.phase === 'verificar' ? 'Comprobando en el servidor…' : JOB.phase === 'bajas' ? `Dándose de baja${JOB.now ? `: ${JOB.now}` : '…'}`
+      : JOB.now ? `Revisando: ${JOB.now}` : (JOB.windowLabel || '');
     const t = JOB.totals || {};
     $('s-seen').textContent = fmt(t.seen);
     if (JOB.kind === 'scan') {
@@ -194,8 +201,8 @@ function renderProgress(j) {
     }
   } else {
     $('run').hidden = true;
-    if (JOB.key && JOB.status === 'done' && JOB.kind !== 'scan' && lastKind === JOB.kind) showDone(JOB);
-    else if ($('done').hidden) $('start').hidden = false;
+    // al terminar, el reporte comprobado llega antes por SSE ("report") y ocupa este lugar
+    if ($('done').hidden) $('start').hidden = false;
     lastKind = null;
   }
   for (const id of ['btnScan', 'btnAuto', 'btnExec', 'btnSave', 'btnSaveRules']) $(id).disabled = busy;
@@ -206,21 +213,202 @@ function renderProgress(j) {
     try { BRIDGE.progress(busy, busy ? (JOB.percent || 0) : 0, busy ? ($('run-title').textContent) : '', busy ? $('run-count').textContent : ''); } catch (_) {}
   }
 }
-function showDone(j) {
-  const t = j.totals || {};
-  $('start').hidden = true; $('done').hidden = false;
-  $('done-title').textContent = j.dryRun ? 'Simulación lista' : 'Listo';
-  $('done-sub').textContent = j.dryRun
-    ? `Se moverían ${fmt(t.deleted)} correos a la papelera · ${fmt(t.kept)} se quedan`
-    : `${fmt(t.deleted)} correos en la papelera · ${fmt(t.kept)} se quedan · ${fmt(t.protected)} protegidos`;
-  $('btnReal').hidden = !(j.dryRun && lastRun && t.deleted > 0);
-  toast(j.dryRun ? `Simulación: se moverían ${fmt(t.deleted)} correos` : `${fmt(t.deleted)} correos movidos a la papelera`, 'ok');
-  // en el celular el aviso queda arriba, fuera de la vista: se lleva la pantalla hasta él
+// ---------- reporte final: lo que se hizo, comprobado en el servidor ----------
+let REPORT = null, REPORT_FULL = null, REPORT_TEXT = '';
+let RFILTER = 'all', RQUERY = '', RSHOWN = 100, RVIEW = [];
+const ST_LABEL = { ok: 'En la papelera', nc: 'Fuera de la bandeja', keep: 'Sigue en la bandeja', inbox: 'Sigue en la bandeja: no se movió', lost: 'No aparece en la Papelera', gone: 'Ya no estaba en la bandeja', pend: 'Sin comprobar' };
+const BAD_ST = new Set(['inbox', 'lost', 'gone', 'pend']);
+const ST_ICON = { ok: 'check', warn: 'alert', err: 'x' };
+const lvl = (status) => status === 'error' ? 'err' : status; // estado del reporte → clase e ícono
+const fmtDur = (s) => s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+const fmtWhen = (iso) => new Date(iso).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const fmtDay = (d) => d ? new Date(d.length === 10 ? `${d}T12:00:00` : d).toLocaleDateString('es', { day: 'numeric', month: 'short', year: '2-digit' }) : '';
+
+function repTitle(r) {
+  const what = r.kind === 'scan' ? 'Análisis' : r.dryRun ? 'Simulación' : 'Limpieza';
+  const f = r.kind === 'scan' ? 'o' : 'a';
+  return r.status === 'ok' ? `${what} verificad${f}` : r.status === 'warn' ? `${what} con avisos` : `${what} con errores`;
+}
+const checksHtml = (list) => (list || []).map(c => `<li class="${c.level}">${icon(ST_ICON[c.level] || 'check')}<span>${esc(c.text)}</span></li>`).join('');
+const issuesHtml = (list) => (list || []).map(i => `<li><span class="ts">${esc(new Date(i.at).toLocaleTimeString('es'))}</span><span class="${i.level === 'err' ? 'lv-err' : ''}">${esc(i.stage)}</span> · ${esc(i.text)}</li>`).join('');
+
+function onReport(r) {
+  refreshHistory();
+  if (r.kind === 'scan') { showScanCheck(r); if (r.status !== 'ok') toast('El análisis terminó con avisos: revisa la verificación', 'warn'); return; }
+  showReport(r);
+  const t = r.totals || {}, v = r.verify || {};
+  const bad = (v.inbox || 0) + (v.lost || 0) + (v.gone || 0);
+  toast(r.status === 'error' ? `Revisa el reporte: ${fmt(bad)} correos con problema` : r.dryRun ? `Simulación: se moverían ${fmt(t.deleted)} correos` : `${fmt(v.trash + v.unknown)} correos en la papelera · verificado`, r.status === 'ok' ? 'ok' : r.status === 'warn' ? 'warn' : 'err', 6000);
+  // en el celular el reporte queda arriba, fuera de la vista: se lleva la pantalla hasta él
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   $('done').scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
   // lo movido ya no está en la bandeja: la lista se vuelve a pedir y esos remitentes desaparecen
-  if (j.kind === 'execute' && !j.dryRun) refreshSenders();
+  if (r.kind === 'execute' && !r.dryRun) refreshSenders();
 }
+
+function showReport(r) {
+  REPORT = r; REPORT_FULL = null; REPORT_TEXT = '';
+  const v = r.verify || {}, t = r.totals || {};
+  RFILTER = (v.inbox || v.lost || v.gone) ? 'bad' : 'all'; RQUERY = ''; RSHOWN = 100; $('rq').value = '';
+  $('start').hidden = true; $('run').hidden = true; $('done').hidden = false;
+  $('rep-badge').className = `rep-badge ${r.status === 'ok' ? '' : lvl(r.status)}`;
+  $('rep-badge-i').setAttribute('href', `#i-${ST_ICON[lvl(r.status)]}`);
+  $('done-title').textContent = repTitle(r);
+  $('done-meta').textContent = [fmtWhen(r.finishedAt), rangeLabel(r.daysBack), fmtDur(r.seconds)].join(' · ');
+  const scan = r.kind === 'scan';
+  $('rep-stats').hidden = scan;
+  if (!scan) {
+    $('r-moved').textContent = fmt(r.dryRun || !v.ran ? t.deleted : v.trash + v.unknown);
+    $('r-moved-l').textContent = r.dryRun ? 'Se moverían' : v.ran ? 'En la papelera' : 'Movidos';
+    $('r-kept').textContent = fmt(Math.max(0, (t.seen || 0) - (t.deleted || 0)));
+    $('r-prot').textContent = fmt(t.protected);
+    $('r-unsub').textContent = r.unsubTotal ? `${fmt(r.unsubOk)}/${fmt(r.unsubTotal)}` : '0';
+  }
+  $('rep-checks').innerHTML = checksHtml(r.checks);
+  const iss = r.issues || [];
+  $('rep-issues').hidden = !iss.length;
+  $('rep-issues').classList.toggle('err', iss.some(i => i.level === 'err'));
+  $('rep-issues-t').textContent = `Errores y avisos (${fmt(r.issueCount || iss.length)})`;
+  $('rep-issues-list').innerHTML = issuesHtml(iss);
+  $('btnReal').hidden = !(r.dryRun && lastRun && t.deleted > 0);
+  // a la derecha, el detalle por remitente reemplaza a los resultados del análisis
+  $('rep').hidden = scan; if (!scan) $('scan-check').hidden = true;
+  renderSenders();
+  if (!scan) { renderReport(); loadReportDetail(r.id); }
+}
+function closeReport() {
+  REPORT = REPORT_FULL = null; REPORT_TEXT = '';
+  $('done').hidden = true; $('rep').hidden = true;
+  $('start').hidden = !!JOB.running;
+  renderSenders();
+}
+async function loadReportDetail(id) {
+  try {
+    const d = await api('GET', `/api/report?id=${encodeURIComponent(id)}`);
+    if (!REPORT || REPORT.id !== id) return;
+    REPORT_FULL = d.report; REPORT_TEXT = d.text;
+    renderReport();
+  } catch (e) { if (REPORT && REPORT.id === id) $('rep-list').innerHTML = `<div class="empty">${icon('alert')}<span>${esc(e.message)}</span></div>`; }
+}
+
+function renderReport() {
+  const r = REPORT_FULL, list = $('rep-list');
+  for (const b of document.querySelectorAll('[data-rf]')) b.setAttribute('aria-pressed', String(b.dataset.rf === RFILTER));
+  $('rc-all-l').textContent = REPORT && REPORT.dryRun ? 'Se moverían' : 'Movidos';
+  $('rc-all').textContent = fmt(REPORT ? REPORT.moved : 0);
+  if (!r) { list.innerHTML = `<div class="empty">${icon('rotate')}<span>Cargando el detalle…</span></div>`; return; }
+  const G = r.groups || [], P = (r.protGroups || []).map(g => ({ ...g, prot: true }));
+  const isBad = (g) => g.bad > 0 || (g.unsub && !g.unsub.ok);
+  $('rc-bad').textContent = fmt([...G, ...P].reduce((a, g) => a + g.bad + (g.unsub && !g.unsub.ok ? 1 : 0), 0));
+  $('rc-prot').textContent = fmt(P.reduce((a, g) => a + g.count, 0));
+  $('rc-unsub').textContent = fmt(G.filter(g => g.unsub && g.unsub.ok).length);
+  const q = RQUERY.trim().toLowerCase();
+  const pool = RFILTER === 'prot' ? P : RFILTER === 'bad' ? [...G, ...P].filter(isBad) : RFILTER === 'unsub' ? G.filter(g => g.unsub) : G.filter(g => g.count);
+  RVIEW = pool.filter(g => !q || g.email.includes(q) || String(g.name).toLowerCase().includes(q));
+  if (!RVIEW.length) { list.innerHTML = `<div class="empty">${icon(RFILTER === 'prot' ? 'shield' : 'check')}<span>${RFILTER === 'bad' ? 'Sin problemas' : RFILTER === 'prot' ? 'Nada protegido en esta corrida' : 'Nada por aquí'}</span></div>`; return; }
+  list.innerHTML = RVIEW.slice(0, RSHOWN).map((g, i) => groupHtml(g, i, r)).join('')
+    + (RVIEW.length > RSHOWN ? `<div class="more"><button class="btn ghost sm" type="button" data-rmore>Ver ${fmt(RVIEW.length - RSHOWN)} más</button></div>` : '')
+    + (r.moved > r.listed && RFILTER === 'all' ? `<div class="more xs muted">${fmt(r.moved - r.listed)} correos más se movieron y se contaron, sin detalle uno por uno</div>` : '');
+  // los que tienen problemas se ven abiertos
+  for (const d of list.querySelectorAll('details[open]')) fillGroup(d);
+}
+function groupHtml(g, i, r) {
+  const okTxt = g.prot ? 'protegidos, en tu bandeja' : r.dryRun ? 'siguen en la bandeja' : 'en la papelera';
+  const st = g.bad ? `<span class="tag del">${icon('alert', 'sm')}${fmt(g.bad)} con problema</span>`
+    : g.count ? `<span class="tag ${g.prot ? 'info' : 'keep'}">${icon(g.prot ? 'shield' : 'check', 'sm')}${fmt(g.ok)} ${okTxt}</span>` : '';
+  const un = g.unsub ? `<span class="tag ${g.unsub.ok ? 'info' : 'duda'}">${icon('bell-off', 'sm')}${g.unsub.ok ? 'Baja hecha' : 'Sin baja'}</span>` : '';
+  const s = { email: g.email, name: g.name };
+  return `<details class="rgroup" data-g="${i}"${g.bad || (g.unsub && !g.unsub.ok) ? ' open' : ''}>
+    <summary class="sender">
+      <div class="avatar" style="background:${avColor(g.email)}" aria-hidden="true">${esc(initial(s))}</div>
+      <div class="who">
+        <div class="name">${esc(g.name)}</div>
+        <div class="meta"><span class="num">${fmt(g.count)} correo${g.count === 1 ? '' : 's'}</span>${st}${un}<span class="em">${esc(g.email)}</span></div>
+      </div>
+      <div class="acts">${icon('chevron', 'chev')}</div>
+    </summary>
+    <ul class="ritems"></ul>
+  </details>`;
+}
+// el detalle de cada remitente se arma al abrirlo (puede tener cientos de correos)
+const MAX_ITEMS_SHOWN = 400;
+function fillGroup(d) {
+  const ul = d.querySelector('.ritems'); if (!ul || ul.childElementCount) return;
+  const g = RVIEW[+d.dataset.g]; if (!g) return;
+  const okLbl = g.prot || (REPORT_FULL && REPORT_FULL.dryRun) ? 'keep' : 'ok';
+  const rows = g.items.slice(0, MAX_ITEMS_SHOWN).map(it => {
+    const bad = BAD_ST.has(it.st);
+    return `<li class="${bad ? 'bad' : ''}" title="${esc(ST_LABEL[it.st] || it.st)}">${icon(bad ? 'x' : 'check')}<span class="d">${esc(fmtDay(it.date))}</span><span class="s">${esc(it.subject || '(sin asunto)')}</span>${bad || it.st !== okLbl ? `<span class="why">${esc(ST_LABEL[it.st] || it.st)}</span>` : ''}</li>`;
+  });
+  if (g.items.length > MAX_ITEMS_SHOWN) rows.push(`<li class="more-items">y ${fmt(g.items.length - MAX_ITEMS_SHOWN)} más (están en "Copiar reporte")</li>`);
+  if (g.unsub && !g.unsub.ok) rows.push(`<li class="bad">${icon('bell-off')}<span class="d">Baja</span><span class="s">${esc(g.unsub.error || 'no se pudo')}</span></li>`);
+  else if (g.unsub) rows.push(`<li>${icon('bell-off')}<span class="d">Baja</span><span class="s">Hecha${g.unsub.method ? ` (${esc(g.unsub.method)})` : ''}</span></li>`);
+  ul.innerHTML = rows.join('');
+}
+$('rep-list').addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.rgroup') && e.target.open) fillGroup(e.target); }, true);
+$('rep-list').addEventListener('click', (e) => { if (e.target.closest('[data-rmore]')) { RSHOWN += 200; renderReport(); } });
+document.querySelector('[aria-label="Filtrar reporte"]').addEventListener('click', (e) => { const b = e.target.closest('[data-rf]'); if (!b) return; RFILTER = b.dataset.rf; RSHOWN = 100; renderReport(); });
+$('rq').addEventListener('input', () => { RQUERY = $('rq').value; RSHOWN = 100; renderReport(); });
+
+async function copyText(text) {
+  if (BRIDGE && BRIDGE.copy) { BRIDGE.copy(text); return; }
+  try { await navigator.clipboard.writeText(text); return; } catch (_) {}
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand('copy'); ta.remove();
+  if (!ok) throw new Error('No se pudo copiar');
+}
+async function reportText() {
+  if (!REPORT_TEXT) REPORT_TEXT = (await api('GET', `/api/report?id=${encodeURIComponent(REPORT.id)}`)).text;
+  return REPORT_TEXT;
+}
+$('btnShareRep').hidden = !(BRIDGE && BRIDGE.share);
+$('btnShareRep').onclick = async () => {
+  if (!REPORT) return;
+  try { BRIDGE.share(`NoniMail · ${repTitle(REPORT)}`, await reportText()); } catch (e) { toast(e.message, 'err'); }
+};
+$('btnCopyRep').onclick = async () => {
+  if (!REPORT) return;
+  try {
+    await copyText(await reportText());
+    toast('Reporte copiado', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+// análisis terminado: la verificación va arriba de los resultados
+function showScanCheck(r) {
+  const el = $('scan-check');
+  el.hidden = false; el.className = `verified${r.status === 'ok' ? '' : ` ${lvl(r.status)}`}`;
+  $('scan-check-i').setAttribute('href', r.status === 'ok' ? '#i-shield' : '#i-alert');
+  $('scan-check-t').textContent = `${repTitle(r)} · ${fmt((r.totals || {}).seen)} correos · ${fmt(r.senders)} remitentes`;
+  $('scan-checks').innerHTML = checksHtml(r.checks);
+  const iss = r.issues || [];
+  $('scan-issues').hidden = !iss.length; $('scan-issues').innerHTML = issuesHtml(iss);
+  el.open = r.status !== 'ok';
+}
+
+// historial: los últimos reportes guardados
+let HISTORY = [];
+async function refreshHistory() { try { renderHistory((await api('GET', '/api/reports')).reports); } catch (_) {} }
+function histLine(r) {
+  const t = r.totals || {};
+  if (r.kind === 'scan') return `Análisis · ${fmt(t.seen)} correos · ${fmt(r.senders)} remitentes`;
+  return `${r.dryRun ? 'Simulación' : r.title} · ${fmt(r.moved)} ${r.dryRun ? 'se moverían' : 'a la papelera'}`;
+}
+function renderHistory(list) {
+  const L = (list || []).slice(0, 15);
+  $('history').hidden = !L.length;
+  $('hist').innerHTML = L.map(r => `<button type="button" data-rep="${esc(r.id)}" class="${lvl(r.status)}">${icon(ST_ICON[lvl(r.status)] || 'check')}<span class="w">${esc(histLine(r))}</span><small>${esc(fmtWhen(r.finishedAt))}</small></button>`).join('');
+  HISTORY = L;
+}
+$('hist').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rep]'); if (!b || JOB.running) return;
+  const r = HISTORY.find(x => x.id === b.dataset.rep); if (!r) return;
+  lastRun = null;
+  showReport(r);
+  $('done').scrollIntoView({ block: 'start' });
+});
 async function refreshSenders() {
   try {
     const d = await api('GET', '/api/senders');
@@ -229,15 +417,15 @@ async function refreshSenders() {
     renderSenders();
   } catch (_) {}
 }
-$('btnAgain').onclick = () => { $('done').hidden = true; $('start').hidden = false; };
+$('btnAgain').onclick = () => closeReport();
 // después de simular: lo mismo, pero de verdad
 $('btnReal').onclick = async () => {
   if (!lastRun) return;
-  const n = $('done-sub').textContent.match(/[\d.]+/);
-  if (!(await ask('¿Mover a la papelera?', `${n ? n[0] + ' correos · ' : ''}${rangeLabel(lastRun.body.daysBack)}\nSe pueden recuperar desde la Papelera.`, 'Mover', true))) return;
+  const n = REPORT && REPORT.dryRun ? fmt(REPORT.totals.deleted) : '';
+  if (!(await ask('¿Mover a la papelera?', `${n ? n + ' correos · ' : ''}${rangeLabel(lastRun.body.daysBack)}\nSe pueden recuperar desde la Papelera.`, 'Mover', true))) return;
   $('dryRun').checked = false;
   const body = { ...lastRun.body, dryRun: false };
-  if (await startJob(lastRun.url, body, lastRun.kind) && lastRun.kind === 'execute') processUnsubs();
+  await startJob(lastRun.url, body, lastRun.kind); // las bajas van dentro del trabajo y salen en el reporte
 };
 $('btnStop').onclick = async () => { $('btnStop').disabled = true; try { await api('POST', '/api/stop', {}); } catch (e) { toast(e.message, 'err'); } };
 
@@ -295,22 +483,22 @@ function initial(s) { const m = String(s.name || s.email).match(/[\p{L}\p{N}]/u)
 function renderSenders() {
   const c = counts();
   $('c-del').textContent = fmt(c.del); $('c-duda').textContent = fmt(c.duda); $('c-keep').textContent = fmt(c.keep);
-  for (const b of document.querySelectorAll('.sum')) b.setAttribute('aria-pressed', String(b.dataset.f === FILTER));
-  const has = senders.size > 0;
-  $('res-head').hidden = !has; $('empty').hidden = has;
+  for (const b of document.querySelectorAll('#res-head .sum')) b.setAttribute('aria-pressed', String(b.dataset.f === FILTER));
+  const has = senders.size > 0, rep = !$('rep').hidden; // con el reporte abierto, el detalle ocupa este lugar
+  $('res-head').hidden = !has || rep; $('empty').hidden = has || rep;
   const q = QUERY.trim().toLowerCase();
   const arr = [...senders.values()]
     .filter(s => effDecision(s) === FILTER && (!q || s.email.includes(q) || String(s.name).toLowerCase().includes(q)))
     .sort((a, b) => b.count - a.count);
   const list = $('list');
-  list.hidden = !has;
+  list.hidden = !has || rep;
   if (!arr.length) list.innerHTML = has ? `<div class="empty">${icon('check')}<span>Nada por aquí</span></div>` : '';
   else {
     list.innerHTML = arr.slice(0, SHOWN).map(rowHtml).join('') + (arr.length > SHOWN ? `<div class="more"><button class="btn ghost sm" type="button" data-more>Ver ${fmt(arr.length - SHOWN)} más</button></div>` : '');
   }
   const unsubN = [...senders.values()].filter(wantsUnsub).length;
   const running = !!JOB.running;
-  $('actionbar').hidden = !has || running || (c.delMails === 0 && unsubN === 0);
+  $('actionbar').hidden = !has || rep || running || (c.delMails === 0 && unsubN === 0);
   const dry = $('dryRun').checked;
   $('exec-txt').textContent = c.delMails ? `${dry ? 'Simular: mover' : 'Mover'} ${fmt(c.delMails)} correos a la papelera` : `Darse de baja de ${fmt(unsubN)}`;
 }
@@ -350,7 +538,7 @@ $('list').addEventListener('click', async (e) => {
   try { const d = await api('POST', '/api/sender-rule', { email: s.email, rule }); s.rule = d.rule; s.protected = d.protected; renderSenders(); }
   catch (err) { toast(err.message, 'err'); }
 });
-document.querySelector('.summary').addEventListener('click', (e) => { const b = e.target.closest('.sum'); if (!b) return; FILTER = b.dataset.f; SHOWN = 150; renderSenders(); });
+document.querySelector('#res-head .summary').addEventListener('click', (e) => { const b = e.target.closest('.sum'); if (!b) return; FILTER = b.dataset.f; SHOWN = 150; renderSenders(); });
 $('q').addEventListener('input', () => { QUERY = $('q').value; SHOWN = 150; renderSenders(); });
 $('dryRun').addEventListener('change', () => renderSenders());
 
@@ -410,8 +598,10 @@ $('btnExec').onclick = async () => {
   if (mails) lines.push(`${fmt(mails)} correos de ${fmt(del.length)} remitentes a la papelera`);
   if (uns && !dry) lines.push(`Baja de ${fmt(uns)} listas`);
   if (!(await ask(dry ? 'Simular' : '¿Mover a la papelera?', lines.join('\n') + `\n${rangeLabel(DAYS)}`, dry ? 'Simular' : 'Mover', !dry))) return;
-  if (del.length && !(await startJob('/api/execute', { daysBack: DAYS, emails: del.map(s => s.email), dryRun: dry }, 'execute'))) return;
-  if (!dry) processUnsubs();
+  const unsub = [...senders.values()].filter(wantsUnsub).map(s => s.email);
+  // con correos que mover, las bajas van dentro del trabajo y quedan en el reporte; solo bajas, de a una
+  if (del.length) await startJob('/api/execute', { daysBack: DAYS, emails: del.map(s => s.email), unsub, dryRun: dry }, 'execute');
+  else if (!dry) processUnsubs();
 };
 
 // ---------- SSE ----------
@@ -423,7 +613,8 @@ function connect() {
     else if (m.t === 'metrics') onMetrics(m);
     else if (m.t === 'progress') { renderProgress(m.job); if (!m.job.running) { refreshPending(); renderSenders(); } }
     else if (m.t === 'senders') upsertSenders(m.list);
-    else if (m.t === 'scanstart') { senders.clear(); unsubChoice.clear(); unsubState.clear(); FILTER = 'delete'; SHOWN = 150; upsertSenders(m.senders || []); renderSenders(); }
+    else if (m.t === 'report') onReport(m.report);
+    else if (m.t === 'scanstart') { $('scan-check').hidden = true; senders.clear(); unsubChoice.clear(); unsubState.clear(); FILTER = 'delete'; SHOWN = 150; upsertSenders(m.senders || []); renderSenders(); }
     else if (m.t === 'scandone') renderSenders();
     else if (m.t === 'config') { renderMain(m.config); }
     else if (m.t === 'runtime') renderRuntime(m.runtime);
@@ -694,6 +885,7 @@ window.noniBack = () => {
     const d = await api('GET', '/api/senders');
     if (d.senders.length) { upsertSenders(d.senders); if (d.daysBack != null) { DAYS = d.daysBack; renderRanges(); } }
     renderSenders();
+    refreshHistory();
     if (c.account.type === 'none') openSettings('cuenta');
   } catch (e) { toast(`No se pudo cargar: ${e.message}`, 'err', 10000); }
 })();

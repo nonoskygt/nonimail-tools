@@ -404,6 +404,71 @@ details.adv > .stack { padding-top: var(--sp-3); }
 .kw.del span { background: var(--danger-soft); color: var(--danger-text); }
 pre.prompt { margin: 0; max-height: 260px; overflow: auto; padding: var(--sp-3); border-radius: var(--r-m); background: var(--surface-2); font: 400 12px/1.55 'Cascadia Code', Consolas, ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
 
+/* ---------- reporte final (comprobado en el servidor) ---------- */
+.layout:has(#done:not([hidden])) .col.main { position: static; }
+.summary.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.summary.four .sum { padding: var(--sp-3); }
+.summary.four .sum b { font-size: var(--fs-xl); }
+.sum.prot b { color: var(--primary-text); }
+@media (max-width: 480px) { .summary.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rep-top { display: flex; align-items: center; gap: var(--sp-3); }
+.rep-top .t { min-width: 0; }
+.rep-badge { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--ok-soft); color: var(--ok-text); }
+.rep-badge .icon { width: 24px; height: 24px; stroke-width: 2.5; }
+.rep-badge.warn { background: var(--warn-soft); color: var(--warn-text); }
+.rep-badge.err { background: var(--danger-soft); color: var(--danger-text); }
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.checks li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: var(--sp-2); align-items: start; font-size: var(--fs-s); line-height: 1.45; }
+.checks li .icon { width: 18px; height: 18px; margin-top: 1px; color: var(--ok-text); }
+.checks li.warn .icon { color: var(--warn-text); }
+.checks li.err .icon { color: var(--danger-text); }
+.checks li.err { font-weight: 600; }
+details.issues summary, details.verified summary { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; list-style: none; min-height: 44px; font-size: var(--fs-s); font-weight: 600; }
+details.issues summary::-webkit-details-marker, details.verified summary::-webkit-details-marker, details.rgroup > summary::-webkit-details-marker { display: none; }
+details.issues summary .chev, details.verified summary .chev { margin-left: auto; }
+details[open] > summary .chev { transform: rotate(180deg); }
+details.issues { padding: 0 var(--sp-3); border-radius: var(--r-m); background: var(--warn-soft); color: var(--warn-text); }
+details.issues.err { background: var(--danger-soft); color: var(--danger-text); }
+.issue-list { margin: 0 0 var(--sp-3); padding: var(--sp-3); list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; border-radius: var(--r-s); background: var(--surface); color: var(--text); font: 400 12px/1.5 'Cascadia Code', Consolas, ui-monospace, monospace; }
+.issue-list li { overflow-wrap: anywhere; }
+.issue-list .ts { color: var(--text-3); margin-right: 6px; }
+.issue-list .lv-err { color: var(--danger-text); font-weight: 700; }
+details.verified { padding: 0 var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-l); background: var(--surface); }
+details.verified summary > .icon:first-child { color: var(--ok-text); }
+details.verified.warn summary > .icon:first-child { color: var(--warn-text); }
+details.verified.err summary > .icon:first-child { color: var(--danger-text); }
+details.verified .checks { padding-bottom: var(--sp-3); }
+details.verified .issue-list { background: var(--surface-2); }
+
+/* grupos: un remitente por fila; se despliega correo por correo */
+details.rgroup { border-top: 1px solid var(--border); }
+details.rgroup:first-child { border-top: 0; }
+details.rgroup > summary { list-style: none; cursor: pointer; border-top: 0; }
+details.rgroup > summary:hover { background: var(--surface-2); }
+details.rgroup > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.rgroup .acts .chev { color: var(--text-3); }
+.ritems { list-style: none; margin: 0; padding: 0 var(--sp-4) var(--sp-3) calc(40px + var(--sp-3) + var(--sp-4)); display: flex; flex-direction: column; }
+.ritems li { display: grid; grid-template-columns: 16px 76px minmax(0, 1fr); gap: var(--sp-2); align-items: center; padding: 6px 0; border-top: 1px dashed var(--border); font-size: var(--fs-s); }
+.ritems li:first-child { border-top: 0; }
+.ritems .icon { width: 16px; height: 16px; color: var(--ok-text); }
+.ritems .d { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ritems .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ritems li.bad .icon, .ritems li.bad .why { color: var(--danger-text); }
+.ritems .why { grid-column: 3; font-size: var(--fs-xs); font-weight: 600; }
+.ritems .more-items { grid-template-columns: 1fr; color: var(--text-3); font-size: var(--fs-xs); }
+@media (max-width: 420px) { .ritems { padding-left: var(--sp-3); } .ritems li { grid-template-columns: 16px 68px minmax(0, 1fr); } }
+
+/* historial de reportes */
+.hist { display: flex; flex-direction: column; margin-top: var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface); overflow: hidden; }
+.hist button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: var(--sp-2); align-items: center; min-height: 44px; padding: var(--sp-2) var(--sp-3); border: 0; border-top: 1px solid var(--border); background: none; color: var(--text); font: inherit; font-size: var(--fs-s); text-align: left; cursor: pointer; }
+.hist button:first-child { border-top: 0; }
+.hist button:hover { background: var(--surface-2); }
+.hist button .icon { width: 16px; height: 16px; color: var(--ok-text); }
+.hist button.warn .icon { color: var(--warn-text); }
+.hist button.err .icon { color: var(--danger-text); }
+.hist .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist small { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 /* ---------- diálogo ---------- */
 dialog.dlg { width: min(440px, calc(100% - 32px)); padding: 0; border: 0; border-radius: var(--r-xl); background: var(--surface); color: var(--text); box-shadow: var(--shadow-2); }
 dialog.dlg::backdrop { background: var(--scrim); }

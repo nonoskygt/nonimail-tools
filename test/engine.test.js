@@ -216,3 +216,132 @@ test('un trabajo nuevo con la misma clave descarta el pausado; dos a la vez no s
     await t.done();
   } finally { await t.cleanup(); }
 });
+
+// ---------- reporte y comprobación posterior ----------
+const R = require('../lib/report');
+
+// abre el correo con moveToTrashMap reemplazado: `fake(phase)` decide si esta vez "mueve" sin mover nada
+function fakeMoves(t, fake) {
+  t.eng.openMail = async () => {
+    const m = await new MailClient(S.imapOpts(t.imap.port)).connect();
+    const real = m.moveToTrashMap.bind(m);
+    m.moveToTrashMap = async (uids) => (fake(t.eng.job && t.eng.job.phase) ? { count: uids.length, uidMap: new Map() } : real(uids));
+    return m;
+  };
+}
+
+test('reporte de Mover: cada correo comprobado en la Papelera, protegidos intactos y la baja incluida', async () => {
+  const t = await setup();
+  const reports = [];
+  t.eng.onReport = (r) => reports.push(r);
+  try {
+    t.eng.start('execute', { daysBack: 365, emails: ['ofertas@tienda.com'], unsub: ['ofertas@tienda.com'], dryRun: false });
+    await t.done();
+    assert.equal(reports.length, 1);
+    const r = reports[0];
+    assert.equal(r.status, 'ok', JSON.stringify(r.checks));
+    assert.equal(r.verify.ran, true);
+    assert.equal(r.verify.trash, 5); assert.equal(r.verify.inbox, 0); assert.equal(r.verify.lost, 0);
+    assert.equal(r.verify.protChecked, 3, 'factura, Re: y la cotización respondida');
+    assert.equal(r.verify.protGone, 0);
+    const g = r.groups.find(x => x.email === 'ofertas@tienda.com');
+    assert.equal(g.count, 5); assert.equal(g.ok, 5); assert.equal(g.bad, 0);
+    assert.deepEqual(g.items.map(i => i.st), ['ok', 'ok', 'ok', 'ok', 'ok']);
+    assert.ok(g.items.every(i => i.subject.startsWith('Gran OFERTA') && /^\d{4}-\d\d-\d\dT/.test(i.date)));
+    assert.equal(g.unsub.ok, true, 'la baja se hizo dentro del trabajo, con la cabecera leída al mover');
+    const p = r.protGroups.find(x => x.email === 'ofertas@tienda.com');
+    assert.deepEqual(p.items.map(i => i.subject).sort(), ['Cotización especial', 'Re: mi pedido', 'Tu factura de compra']);
+    assert.ok(p.items.every(i => i.st === 'keep'), 'los protegidos se comprobaron en la bandeja');
+    assert.equal(p.unsub, null);
+    assert.equal(t.smtpSrv.messages.length, 1);
+    assert.ok(r.checks.every(c => c.ok), JSON.stringify(r.checks));
+    const txt = R.toText(r);
+    assert.match(txt, /Están en la Papelera: 5 de 5/);
+    assert.match(txt, /Gran OFERTA 3\s+— en la papelera/);
+  } finally { await t.cleanup(); }
+});
+
+test('reporte de una simulación: comprueba que nada se movió', async () => {
+  const t = await setup();
+  const reports = [];
+  t.eng.onReport = (r) => reports.push(r);
+  try {
+    t.eng.start('auto', { daysBack: 365, dureza: 50, dryRun: true });
+    await t.done();
+    const r = reports[0];
+    assert.equal(r.status, 'ok', JSON.stringify(r.checks));
+    assert.equal(r.dryRun, true);
+    assert.equal(r.moved, 6);
+    assert.equal(r.verify.gone, 0);
+    assert.ok(r.groups.every(g => g.items.every(i => i.st === 'keep')));
+    assert.ok(r.checks.some(c => /Nada se movió: los 6 candidatos siguen en la bandeja/.test(c.text)));
+  } finally { await t.cleanup(); }
+});
+
+test('si el servidor dice que movió pero no lo hizo, el comprobador lo detecta y lo vuelve a mover', async () => {
+  const t = await setup();
+  const reports = [];
+  t.eng.onReport = (r) => reports.push(r);
+  fakeMoves(t, (phase) => phase !== 'verificar'); // durante los lotes "mueve" sin mover; al comprobar, de verdad
+  try {
+    t.eng.start('execute', { daysBack: 365, emails: ['ofertas@tienda.com'], dryRun: false });
+    await t.done();
+    const r = reports[0];
+    assert.equal(r.verify.retried, 5);
+    assert.equal(r.verify.trash, 5); assert.equal(r.verify.inbox, 0);
+    assert.equal(r.status, 'warn', 'terminó bien, pero avisa que hubo que reintentar');
+    assert.ok(r.issues.some(i => i.stage === 'verificación' && /seguían en la bandeja/.test(i.text)));
+    assert.equal((await t.subjects('Papelera')).length, 5);
+  } finally { await t.cleanup(); }
+});
+
+test('si los correos nunca se mueven, el reporte queda en error y dice cuáles siguen en la bandeja', async () => {
+  const t = await setup();
+  const reports = [];
+  t.eng.onReport = (r) => reports.push(r);
+  fakeMoves(t, () => true);
+  try {
+    t.eng.start('execute', { daysBack: 365, emails: ['ofertas@tienda.com'], dryRun: false });
+    await t.done();
+    const r = reports[0];
+    assert.equal(r.status, 'error');
+    assert.equal(r.verify.inbox, 5);
+    const g = r.groups.find(x => x.email === 'ofertas@tienda.com');
+    assert.equal(g.bad, 5);
+    assert.ok(g.items.every(i => i.st === 'inbox'));
+    assert.ok(r.checks.some(c => !c.ok && /5 correos siguen en la bandeja/.test(c.text)));
+    assert.match(R.toText(r), /SIGUE EN LA BANDEJA/);
+  } finally { await t.cleanup(); }
+});
+
+test('reporte del análisis: todos los correos contados y todos los remitentes con veredicto', async () => {
+  const t = await setup();
+  const reports = [];
+  t.eng.onReport = (r) => reports.push(r);
+  try {
+    t.eng.start('scan', { daysBack: 365 });
+    await t.done();
+    const r = reports[0];
+    assert.equal(r.kind, 'scan');
+    assert.equal(r.status, 'ok', JSON.stringify(r.checks));
+    assert.equal(r.senders, 4);
+    assert.ok(r.checks.some(c => /4 remitentes con veredicto/.test(c.text)));
+    assert.ok(r.checks.some(c => /Cada correo quedó contado/.test(c.text)));
+  } finally { await t.cleanup(); }
+});
+
+test('ReportStore: guarda, lista sin el detalle, conserva los últimos y no lee fuera de su carpeta', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nm-rep-'));
+  try {
+    const st = new R.ReportStore(dir, 3);
+    const mk = (i) => ({ id: `2026101${i}-120000-execute`, status: 'ok', groups: [{ email: 'a@b', items: [{ subject: 's' }] }], issues: [], issueCount: 0 });
+    for (let i = 0; i < 5; i++) st.save(mk(i));
+    const list = st.list();
+    assert.deepEqual(list.map(r => r.id), ['20261014-120000-execute', '20261013-120000-execute', '20261012-120000-execute']);
+    assert.equal(list[0].groups, undefined, 'la lista no trae los correos uno por uno');
+    assert.equal(list[0].groupCount, 1);
+    assert.equal(st.get('20261014-120000-execute').groups[0].items.length, 1);
+    assert.equal(st.get('../config'), null);
+    assert.equal(st.get('20261010-120000-execute'), null, 'los viejos se borran');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

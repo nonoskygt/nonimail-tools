@@ -24,6 +24,7 @@ const oauth = require('./lib/mail/google-oauth');
 const { connectionOptions } = require('./lib/mail/account');
 const { PRESETS } = require('./lib/mail/presets');
 const { LocalRuntime } = require('./lib/runtime');
+const Report = require('./lib/report');
 
 // ---------- estado persistente ----------
 const CONFIG_FILE = paths.file('config.json');
@@ -35,6 +36,8 @@ catch (e) { console.error(`Regla inválida en config.json (${e.message}); se ign
 const SECRETS = new Secrets(paths.file('secrets.json'));
 const TOKENS = new oauth.TokenCache();
 const PROGRESS = new ProgressStore(paths.file('progress.json'));
+const REPORTS = new Report.ReportStore(paths.file('reports'));
+const APP = { version: require('./package.json').version, platform: process.env.NONIMAIL_PLATFORM || `${process.platform}-${process.arch}` };
 
 // reglas por remitente: rules email->'delete'|'protect', unsub email->true
 const SENDERS_FILE = paths.file('senders.json');
@@ -96,6 +99,11 @@ const engine = new Engine({
     } catch (_) { logStream = null; }
   },
   onRunEnd() { if (logStream) { try { logStream.end(); } catch (_) {} logStream = null; } },
+  onReport(r) {
+    r.app = APP;
+    try { REPORTS.save(r); } catch (e) { emit('sys', `No se pudo guardar el reporte: ${e.message}`, 'err'); }
+    sse({ t: 'report', report: Report.summary(r) });
+  },
 });
 
 const runtime = new LocalRuntime({ root: paths.ROOT, dataDir: paths.DATA_DIR, cfg: () => CFG, sse, emit, busy: () => engine.busy() });
@@ -258,6 +266,13 @@ const server = http.createServer(async (req, res) => {
         return json(200, engine.start(saved.kind, { resume: true, key: saved.key }));
       }
       case 'POST /api/jobs/discard': engine.discard(body.key); return json(200, { ok: true, pending: engine.pendingJobs() });
+      // ----- reportes de cada trabajo terminado -----
+      case 'GET /api/reports': return json(200, { reports: REPORTS.list() });
+      case 'GET /api/report': {
+        const r = REPORTS.get(u.searchParams.get('id'));
+        if (!r) return json(404, { error: 'No existe ese reporte' });
+        return json(200, { report: r, text: Report.toText(r) });
+      }
       case 'POST /api/sender-rule': {
         const email = String(body.email || '').trim().toLowerCase(), rule = body.rule;
         if (!email) return json(400, { error: 'falta email' });
