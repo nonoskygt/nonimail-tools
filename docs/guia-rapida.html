@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoniMail · Guía rápida</title>
+<style>
+  @font-face { font-family: 'Inter'; font-weight: 100 900; font-display: swap; src: url('../public/assets/fonts/inter-latin-wght-normal.woff2') format('woff2'); }
+  :root {
+    --bg: #F8FAFC; --surface: #FFFFFF; --border: #E2E8F0; --text: #0F172A; --text-2: #475569;
+    --primary: #2563EB; --primary-soft: #EFF6FF; --danger: #DC2626; --ok: #15803D; --mint: #6EE7B7;
+    --font: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0A1020; --surface: #0F172A; --border: #1B2740; --text: #F1F5F9; --text-2: #94A3B8; --primary-soft: rgba(37,99,235,.16); --ok: #86EFAC; }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 400 18px/1.5 var(--font); overflow: hidden; height: 100dvh; }
+  .deck { position: relative; height: 100dvh; }
+  .slide { position: absolute; inset: 0; display: grid; place-items: center; padding: 48px 24px 88px; opacity: 0; visibility: hidden; transform: translateY(12px); transition: opacity .3s ease, transform .3s ease, visibility .3s; }
+  .slide.on { opacity: 1; visibility: visible; transform: none; }
+  .inner { width: min(860px, 100%); display: grid; gap: 28px; grid-template-columns: 1fr; align-items: center; }
+  @media (min-width: 760px) { .inner { grid-template-columns: 1.1fr 1fr; gap: 48px; } }
+  .n { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--primary); color: #fff; font-weight: 800; font-size: 20px; }
+  h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.1; letter-spacing: -.02em; margin: 16px 0 12px; }
+  p { color: var(--text-2); font-size: clamp(17px, 2.2vw, 20px); max-width: 38ch; }
+  .mock { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 24px; display: grid; gap: 14px; box-shadow: 0 12px 32px rgba(15,23,42,.08); }
+  .btn { display: flex; align-items: center; justify-content: center; min-height: 52px; border-radius: 14px; font-weight: 700; color: #fff; background: var(--primary); }
+  .btn.danger { background: var(--danger); }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); font-weight: 600; font-size: 15px; }
+  .chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 16px; }
+  .row:first-child { border-top: 0; }
+  .av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; flex: none; }
+  .tag { margin-left: auto; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+  .bar { height: 12px; border-radius: 999px; background: var(--border); overflow: hidden; } .bar i { display: block; height: 100%; width: 64%; background: var(--primary); }
+  .big { font-size: 52px; font-weight: 800; line-height: 1; letter-spacing: -.03em; }
+  .field { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; color: var(--text-2); font-size: 16px; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); }
+  nav button { width: 48px; height: 48px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 22px; cursor: pointer; }
+  nav button:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+  .prog { flex: 1; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; } .prog i { display: block; height: 100%; background: var(--primary); transition: width .3s ease; }
+  .count { font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 15px; min-width: 40px; text-align: right; }
+  @media (prefers-reduced-motion: reduce) { .slide, .prog i { transition: none; } }
+</style>
+</head>
+<body>
+<main class="deck" id="deck" aria-roledescription="presentación">
+  <section class="slide on" aria-label="1 de 4">
+    <div class="inner">
+      <div><span class="n">1</span><h1>Instala y abre</h1><p>Windows: abre el instalador y busca el ícono en el escritorio. Android: abre el APK.</p></div>
+      <div class="mock" aria-hidden="true">
+        <svg viewBox="0 0 512 512" width="96" height="96" style="justify-self:center"><rect width="512" height="512" rx="116" fill="#2563EB"/><rect x="92" y="176" width="288" height="212" rx="40" fill="#fff"/><path d="M132 218 L236 294 L340 218" fill="none" stroke="#2563EB" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/><path d="M376 76 C384 124 400 140 448 148 C400 156 384 172 376 220 C368 172 352 156 304 148 C352 140 368 124 376 76 Z" fill="#6EE7B7"/></svg>
+        <div style="text-align:center;font-weight:700">NoniMail Cleaner</div>
+      </div>
+    </div>
+  </section>
+  <section class="slide" aria-label="2 de 4">
+    <div class="inner">
+      <div><span class="n">2</span><h1>Conecta tu correo y baja la IA</h1><p>Elige tu proveedor y pega tu contraseña de aplicación. La IA se descarga una sola vez.</p></div>
+      <div class="mock" aria-hidden="true">
+        <div class="chip-row"><span class="chip on">Gmail</span><span class="chip">Yahoo</span><span class="chip">iCloud</span><span class="chip">Otro</span></div>
+        <div class="field">tu@gmail.com</div><div class="field">•••• •••• •••• ••••</div>
+        <div class="btn">Guardar</div>
+      </div>
+    </div>
+  </section>
+  <section class="slide" aria-label="3 de 4">
+    <div class="inner">
+      <div><span class="n">3</span><h1>Analiza y revisa</h1><p>Elige cuánto revisar y toca <b>Analizar bandeja</b>. Mira la barra avanzar y corrige lo que quieras.</p></div>
+      <div class="mock" aria-hidden="true">
+        <div class="big">64<span style="font-size:26px;color:var(--text-2)">%</span></div>
+        <div class="bar"><i></i></div>
+        <div>
+          <div class="row"><span class="av" style="background:#BE185D">L</span>LinkedIn<span class="tag" style="background:#FEF2F2;color:#B91C1C">90</span></div>
+          <div class="row"><span class="av" style="background:#1D4ED8">B</span>Mi Banco<span class="tag" style="background:#F0FDF4;color:#15803D">Protegido</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="slide" aria-label="4 de 4">
+    <div class="inner">
+      <div><span class="n">4</span><h1>Mueve a la papelera</h1><p>Un toque y listo. Bancos, facturas y conversaciones se quedan. Todo se puede recuperar desde la Papelera.</p></div>
+      <div class="mock" aria-hidden="true">
+        <div class="chip-row"><span class="chip on">17 Borrar</span><span class="chip">5 En duda</span><span class="chip">18 Se quedan</span></div>
+        <div class="btn danger">Mover 99 correos a la papelera</div>
+      </div>
+    </div>
+  </section>
+</main>
+<nav>
+  <button id="prev" type="button" aria-label="Anterior">‹</button>
+  <div class="prog" role="progressbar" aria-valuemin="1" aria-valuemax="4" id="prog"><i id="pbar"></i></div>
+  <span class="count" id="count"></span>
+  <button id="next" type="button" aria-label="Siguiente">›</button>
+</nav>
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  let i = 0;
+  function go(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('on', k === i));
+    document.getElementById('pbar').style.width = ((i + 1) / slides.length * 100) + '%';
+    document.getElementById('prog').setAttribute('aria-valuenow', i + 1);
+    document.getElementById('count').textContent = `${i + 1}/${slides.length}`;
+  }
+  document.getElementById('prev').onclick = () => go(i - 1);
+  document.getElementById('next').onclick = () => go(i + 1);
+  document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === ' ') go(i + 1); if (e.key === 'ArrowLeft') go(i - 1); });
+  let x0 = null;
+  document.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) go(i + (dx < 0 ? 1 : -1)); x0 = null; });
+  go(0);
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
-// NoniMail Limpieza 2.0 — app web local
+// NoniMail Cleaner 3.0 — servidor local de la app (Windows, Android o `node server.js`)
 // Servidor HTTP + SSE: configuración, conexión IMAP (Gmail con Google o contraseña de app, u otro proveedor),
-// trabajos por lotes de fechas con progreso guardado, reglas por remitente y bajas de listas.
+// trabajos por lotes de fechas con progreso guardado, reglas por remitente, bajas de listas e IA integrada.
 'use strict';
 
 const http = require('http');
@@ -23,6 +23,7 @@ const smtp = require('./lib/mail/smtp');
 const oauth = require('./lib/mail/google-oauth');
 const { connectionOptions } = require('./lib/mail/account');
 const { PRESETS } = require('./lib/mail/presets');
+const { LocalRuntime } = require('./lib/runtime');
 
 // ---------- estado persistente ----------
 const CONFIG_FILE = paths.file('config.json');
@@ -96,6 +97,10 @@ const engine = new Engine({
   onRunEnd() { if (logStream) { try { logStream.end(); } catch (_) {} logStream = null; } },
 });
 
+const runtime = new LocalRuntime({ root: paths.ROOT, dataDir: paths.DATA_DIR, cfg: () => CFG, sse, emit, busy: () => engine.busy() });
+llm.useRuntime(runtime);
+let listenPort = CFG.port; // el real (Electron/Android pueden pedir uno libre)
+
 // ---------- vistas para la UI (nunca incluyen secretos) ----------
 function accountView() {
   const a = CFG.account, s = SECRETS.status();
@@ -107,10 +112,11 @@ function settingsView() {
   const { heuristics, llmPrompt, ...settings } = CFG;
   return { settings, secrets: SECRETS.status(), presets: PRESETS, accountTypes: C.ACCOUNT_TYPES, redirectUri: redirectUri() };
 }
-const redirectUri = () => `http://127.0.0.1:${CFG.port}/oauth/google/callback`;
+const redirectUri = () => `http://127.0.0.1:${listenPort}/oauth/google/callback`;
 function mainView() {
   return {
-    model: CFG.model, cleaning: CFG.cleaning, account: accountView(),
+    model: llm.modelLabel(CFG), provider: CFG.llm.provider, aiReady: llm.configured(CFG),
+    cleaning: CFG.cleaning, account: accountView(), platform: process.env.NONIMAIL_PLATFORM || process.platform,
     job: engine.view(), pending: engine.pendingJobs(), migratedFrom: loaded.migratedFrom, created: loaded.created,
   };
 }
@@ -142,6 +148,11 @@ async function testConnection(body) {
     finally { if (mc) await mc.close().catch(() => {}); }
     out.smtp = conn.smtp ? await smtp.verify(conn.smtp) : { ok: false, error: 'sin servidor SMTP: las bajas por correo no funcionarán' };
   }
+  if (llm.isLocal(cfg)) {
+    const s = runtime.status();
+    out.llm = { ok: s.ready, local: true, model: llm.modelLabel(cfg), error: s.ready ? null : (s.binary ? 'falta descargar el modelo' : 'falta el motor de IA') };
+    return out;
+  }
   const v = await llm.version(cfg.ollamaUrl);
   if (!v.ok) out.llm = { ok: false, error: v.error };
   else {
@@ -171,7 +182,7 @@ function readBody(req, limit = 1e6) {
 // Solo esta PC: Host local (contra DNS rebinding) y, en POST, JSON del mismo origen (contra CSRF)
 function allowed(req) {
   const host = String(req.headers.host || '').toLowerCase();
-  const okHosts = [`127.0.0.1:${CFG.port}`, `localhost:${CFG.port}`, `[::1]:${CFG.port}`];
+  const okHosts = [`127.0.0.1:${listenPort}`, `localhost:${listenPort}`, `[::1]:${listenPort}`];
   if (!okHosts.includes(host)) return 'host no permitido';
   if (req.method === 'POST') {
     if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return 'se requiere Content-Type: application/json';
@@ -181,11 +192,24 @@ function allowed(req) {
   return null;
 }
 
+// La app de Windows y la de Android ponen un token secreto por arranque (NONIMAIL_TOKEN) y la ventana lo
+// manda como cookie. Sin él, cualquier otra app del celular (o de la PC) podría usar la API por 127.0.0.1:
+// el chequeo de Host/Origin solo frena a páginas web. `npm start` en el navegador no lo usa.
+function authorized(req, pathname) {
+  const token = process.env.NONIMAIL_TOKEN;
+  if (!token) return true;
+  if (req.method === 'GET' && pathname === '/oauth/google/callback') return true; // lo abre el navegador externo; lo protege `state`
+  const m = /(?:^|;\s*)noni=([0-9a-f]+)/.exec(String(req.headers.cookie || ''));
+  const got = String(req.headers['x-noni-token'] || (m && m[1]) || '');
+  return got.length === token.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(token));
+}
+
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost');
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const deny = allowed(req);
   if (deny) return json(403, { error: deny });
+  if (!authorized(req, u.pathname)) return json(401, { error: 'no autorizado' });
   let body = {};
   if (req.method === 'POST') { try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) { return json(400, { error: 'JSON inválido' }); } }
   const route = `${req.method} ${u.pathname}`;
@@ -194,6 +218,24 @@ const server = http.createServer(async (req, res) => {
       case 'GET /': case 'GET /index.html':
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         return res.end(fs.readFileSync(path.join(paths.ROOT, 'public', 'index.html')));
+
+      // ----- IA integrada -----
+      case 'GET /api/runtime': return json(200, runtime.status());
+      case 'POST /api/runtime/download': return json(200, runtime.download(body.id));
+      case 'POST /api/runtime/cancel': runtime.cancelDownload(); return json(200, runtime.status());
+      case 'POST /api/runtime/remove': return json(200, runtime.removeModel(body.id));
+      case 'POST /api/runtime/use': {
+        if (engine.busy()) return json(409, { error: 'Hay un trabajo corriendo' });
+        const provider = body.provider === 'ollama' ? 'ollama' : 'local';
+        const next = JSON.parse(JSON.stringify(CFG));
+        next.llm.provider = provider;
+        if (typeof body.id === 'string') next.local.model = body.id;
+        if (typeof body.model === 'string') next.model = body.model;
+        C.saveConfig(CONFIG_FILE, next); CFG = next;
+        runtime.stop();
+        sse({ t: 'config', config: mainView() });
+        return json(200, { ok: true, runtime: runtime.status(), view: mainView() });
+      }
       case 'GET /api/stream':
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
         res.write('retry: 3000\n\n'); clients.add(res);
@@ -203,7 +245,7 @@ const server = http.createServer(async (req, res) => {
 
       // ----- principal -----
       case 'GET /api/config': return json(200, mainView());
-      case 'GET /api/senders': return json(200, { senders: engine.scanSenders() });
+      case 'GET /api/senders': return json(200, { senders: engine.scanSenders(), daysBack: engine.lastScan ? engine.lastScan.daysBack : null });
       case 'POST /api/scan': return json(200, engine.start('scan', body));
       case 'POST /api/autorun': return json(200, engine.start('auto', body));
       case 'POST /api/execute': return json(200, engine.start('execute', body));
@@ -236,7 +278,7 @@ const server = http.createServer(async (req, res) => {
       // ----- reglas (heurísticas + prompt) -----
       case 'GET /api/rules': {
         const promptTemplate = llm.buildPrompt(CFG.llmPrompt, { from: '{remitente}', subjects: ['{asuntos del remitente}'], bulk: true, body: `{cuerpo, máx. ${CFG.cleaning.bodyMaxChars} caracteres}` });
-        return json(200, { model: CFG.model, ...CFG.heuristics, llmPrompt: CFG.llmPrompt, promptTemplate });
+        return json(200, { model: llm.modelLabel(CFG), ...CFG.heuristics, llmPrompt: CFG.llmPrompt, promptTemplate });
       }
       case 'POST /api/rules': {
         if (engine.busy()) return json(409, { error: 'No se puede editar mientras corre un trabajo' });
@@ -274,7 +316,8 @@ const server = http.createServer(async (req, res) => {
         if (typeof body.think === 'boolean') cfg.llm.think = body.think;
         const tp = parseInt(body.thinkNumPredict, 10);
         if (tp >= 64 && tp <= 32768) cfg.llm.thinkNumPredict = tp;
-        if (!cfg.model) return json(400, { error: 'Elegí un modelo' });
+        if (typeof body.provider === 'string') cfg.llm.provider = body.provider === 'ollama' ? 'ollama' : 'local';
+        if (!llm.isLocal(cfg) && !cfg.model) return json(400, { error: 'Elegí un modelo' });
         return json(200, await llm.testModel(cfg));
       }
 
@@ -317,14 +360,41 @@ const server = http.createServer(async (req, res) => {
         return json(200, { ok: true, view: settingsView() });
       }
     }
+    if (req.method === 'GET' && u.pathname.startsWith('/assets/')) return serveAsset(u.pathname, res);
     res.writeHead(404); res.end('not found');
   } catch (e) {
     return json(e.code && Number.isInteger(e.code) ? e.code : 500, { error: e.message });
   }
 });
 
-server.listen(CFG.port, CFG.host, () => {
-  console.log(`NoniMail Limpieza en http://localhost:${CFG.port}`);
-  if (loaded.created) console.log('Se creó config.json: abrí ⚙ Configuración para conectar tu correo.');
-  if (loaded.migratedFrom) console.log(`Configuración 1.x migrada (el puente de Apps Script ya no se usa). Respaldo: ${loaded.migratedFrom}`);
-});
+// archivos de public/assets (íconos, fuentes): solo lectura y sin salir de la carpeta
+const TYPES = { '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
+function serveAsset(pathname, res) {
+  const dir = path.join(paths.ROOT, 'public', 'assets');
+  const f = path.normalize(path.join(dir, decodeURIComponent(pathname.slice('/assets/'.length))));
+  if (!f.startsWith(dir + path.sep) || !TYPES[path.extname(f)] || !fs.existsSync(f)) { res.writeHead(404); return res.end('not found'); }
+  // css/js sin caché: una actualización de la app se ve al instante; fuentes e íconos sí se guardan
+  res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)], 'Cache-Control': /\.(css|js)$/.test(f) ? 'no-cache' : 'max-age=86400' });
+  fs.createReadStream(f).pipe(res);
+}
+
+// Arranca el servidor. port 0 = uno libre (la app de escritorio y la de Android lo usan así).
+function start({ port = CFG.port, host = CFG.host } = {}) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      listenPort = server.address().port;
+      console.log(`NoniMail Limpieza en http://localhost:${listenPort}`);
+      if (loaded.created) console.log('Se creó config.json: abrí Ajustes para conectar tu correo.');
+      if (loaded.migratedFrom) console.log(`Configuración 1.x migrada (el puente de Apps Script ya no se usa). Respaldo: ${loaded.migratedFrom}`);
+      resolve({ port: listenPort, url: `http://127.0.0.1:${listenPort}`, close });
+    });
+  });
+}
+function close() { runtime.stop(); engine.stop(); return new Promise(r => server.close(() => r())); }
+
+module.exports = { start, close, runtime, engine };
+if (require.main === module) {
+  const p = process.env.NONIMAIL_PORT;
+  start(p != null && p !== '' ? { port: +p } : {}).catch(e => { console.error(`No se pudo abrir el puerto: ${e.message}`); process.exit(1); });
+}

@@ -1,12 +1,18 @@
 {
   "name": "nono-mail-cleaner",
-  "version": "2.0.0",
-  "description": "Limpiador de bandeja de entrada por IMAP (Gmail y otros) con heurísticas y un LLM local vía Ollama",
+  "productName": "NoniMail Cleaner",
+  "version": "3.0.0",
+  "description": "Limpia tu bandeja de entrada con IA local: Windows, Android o navegador",
+  "author": "Nonosky",
   "private": true,
-  "main": "server.js",
+  "main": "desktop/main.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "app": "electron .",
+    "icons": "node scripts/make-icons.js",
+    "dist:win": "node scripts/make-icons.js && node scripts/fetch-llama.js win32-x64 && electron-builder --win nsis",
+    "android:prepare": "node scripts/android-prepare.js"
   },
   "engines": {
     "node": ">=18"
@@ -16,7 +22,39 @@
     "nodemailer": "10.0.10"
   },
   "devDependencies": {
+    "electron": "44.9.0",
+    "electron-builder": "26.15.3",
     "hoodiecrow-imap": "2.1.0",
+    "png-to-ico": "2.1.8",
+    "sharp": "0.34.4",
     "smtp-server": "3.19.13"
+  },
+  "build": {
+    "appId": "com.nonosky.nonimail",
+    "productName": "NoniMail Cleaner",
+    "copyright": "Nonosky",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["server.js", "lib/**", "public/**", "desktop/**", "config.example.json", "package.json", "build/icon.ico"],
+    "extraResources": [{ "from": "vendor/llama/win32-x64", "to": "llama", "filter": ["**/*", "!VERSION"] }],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "executableName": "NoniMail Cleaner"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "NoniMail Cleaner",
+      "include": "build/installer.nsh",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "NoniMail-Cleaner-Setup-${version}.exe",
+      "installerLanguages": ["es_ES"],
+      "language": "3082"
+    }
   }
 }

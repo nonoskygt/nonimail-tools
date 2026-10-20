@@ -1,173 +1,154 @@
-# Nono Mail Cleaner
+# NoniMail Cleaner
 
-Limpiador de bandeja de entrada con panel web local. Se conecta a tu correo por **IMAP** (Gmail u otro
-proveedor) y clasifica los correos en dos capas: protecciones y heurísticas por expresión regular, y un
-**LLM local vía [Ollama](https://ollama.com)**. Mueve a la Papelera solo lo claramente promocional.
+Limpia tu bandeja de entrada con una IA que corre en tu propio equipo. Hay app para **Windows**, para
+**Android** y versión de navegador (`npm start`). Se conecta a tu correo por **IMAP** (Gmail, Yahoo,
+iCloud, Zoho o cualquier servidor) y mueve a la Papelera solo lo claramente promocional.
 
-Todo el análisis ocurre en tu máquina. Ningún asunto ni cuerpo de correo sale hacia un servicio externo de IA.
+Ningún asunto ni cuerpo de correo sale hacia un servicio externo de IA.
 
-## Cómo funciona
+## Instalar
 
-- **`server.js`**: servidor Node que escucha solo en `127.0.0.1:8765`. Orquesta los trabajos y sirve el panel.
-- **`public/index.html`**: panel de control, con eventos en vivo por SSE: remitentes, progreso por lotes y métricas de CPU/GPU.
-- **`lib/`**: el motor.
-  - `mail/imap.js`: acceso IMAP con [imapflow](https://github.com/postalsys/imapflow).
-  - `mail/smtp.js`: bajas por correo con [nodemailer](https://nodemailer.com).
-  - `mail/google-oauth.js`: "Conectar con Google".
-  - `engine.js`: trabajos por lotes.
-  - `classify.js` y `llm.js`: decisión.
+| Plataforma | Archivo | Requisitos |
+|---|---|---|
+| Windows 10/11 (64 bits) | `NoniMail-Cleaner-Setup-3.0.0.exe` | 4 GB de RAM como mínimo; el instalador lo comprueba |
+| Android 8 o más nuevo (arm64) | `NoniMail-Cleaner-3.0.0.apk` | 4 GB de RAM; probado para Snapdragon 8 Gen 3 (Red Magic 9 Pro) |
 
-### Las capas de decisión
+- **Windows:** el instalador es de un clic, no pide permisos de administrador y crea el ícono en el
+  escritorio y en el menú Inicio. Como no está firmado, SmartScreen avisa: **Más información → Ejecutar de
+  todas formas**.
+- **Android:** habilita "Instalar apps desconocidas" para el navegador o el gestor de archivos y abre el APK.
 
-1. **Protecciones**: siempre ganan.
-   - `keepOverride` (banco, factura, recibo, 2FA, alertas de seguridad): ese correo nunca se borra.
-   - Tus reglas por remitente (**Conservar** / **Descartar**), guardadas en `senders.json`.
-   - **Conversaciones**: no se borra un correo que sea una respuesta, ni uno de un hilo donde vos escribiste.
-     En Gmail se revisa el hilo completo; en otros servidores, tu carpeta de Enviados.
-2. **Puntaje del LLM**: un entero de 0 (importante) a 100 (basura segura) por remitente. Los dudosos se
-   vuelven a evaluar "pensando". La **dureza** decide desde qué puntaje se borra; lo que queda en el medio
-   se marca como duda y no se borra solo.
+La primera vez la app pide dos cosas: **conectar tu correo** y **descargar la IA**. La descarga se hace una
+sola vez, se retoma sola si se corta internet y se verifica con SHA-256.
 
-### Lotes por fecha
+## La IA local
 
-En la pantalla principal elegís cuánto revisar: **7 días, 30 días, 3 meses, 6 meses, 1 año, 2 años,
-3 años, 5 años o Todo**.
+Corre con [llama.cpp](https://github.com/ggml-org/llama.cpp) (`llama-server`) incluido en la app. El modelo
+se elige según la RAM del equipo:
 
-- El rango se parte en lotes de N días (30 por defecto), del más nuevo al más viejo.
-- El progreso se guarda al terminar cada lote. Si tocás **Parar**, se cae Ollama o cerrás la app, aparece
-  un aviso con **▶ Continuar** que sigue desde donde quedó.
+| RAM | Modelo | Descarga | Por remitente (CPU) |
+|---|---|---|---|
+| 4 a 7 GB | Qwen 3.5 · 0.8B (Q4_K_M) | 508 MB | ~0,5 s |
+| 8 GB o más | **Qwen 3.5 · 2B (Q4_K_M)**, recomendado | 1,2 GB | ~1 s |
+| 16 GB o más (a elección) | Qwen 3.5 · 4B (Q4_K_M) | 2,6 GB | más lento |
 
-### Reglas de seguridad del borrado
+Medido con `scripts/bench-llm.js`, sobre 40 correos de ejemplo en español e inglés, en el CPU de un equipo
+de escritorio:
+- **El 2B acertó 33 de 34 y no dejó ningún correo importante para borrar.**
+- El 0.8B es más rápido, pero llegó a darle 100 a una cita y a un recibo. Por eso solo se usa cuando no
+  entra el 2B.
 
-- Borrar = **mover a la Papelera** (recuperable). Nunca hay borrado definitivo.
-- Si no se encuentra la carpeta Papelera, o el servidor no soporta MOVE/UIDPLUS, la app **no borra nada**.
-- La lectura se hace en solo lectura: los correos no se marcan como leídos.
-- **Dry-run** (activado por defecto) muestra lo que haría sin tocar el buzón. Empezá siempre por ahí.
+**Por qué es rápido.** Qwen 3.5 es un modelo híbrido: llama.cpp solo reutiliza el prompt desde un
+checkpoint. Por eso la parte fija (las instrucciones) se procesa una vez y cada correo procesa solo lo suyo,
+lo que lo vuelve unas 5 veces más rápido. El motor se apaga solo tras 10 minutos sin trabajo para liberar RAM.
 
-## Instalación
+**Ollama.** Sigue disponible en **Ajustes → IA → Avanzado → Motor**.
 
-Requisitos: **Node.js 18+** y **Ollama** con un modelo instalado.
+## Cómo se usa
 
-```bash
-git clone https://github.com/nonoskygt/nono-mail-cleaner.git
-cd nono-mail-cleaner
-npm install
-ollama pull qwen3.5:9b
-npm start
+1. Elige cuánto revisar (7 días a "Todo") y la intensidad: **Suave**, **Normal** o **A fondo**.
+2. **Analizar bandeja**: lee los correos, los agrupa por remitente y los puntúa. No borra nada.
+3. Revisa las tres pestañas (**Borrar**, **En duda**, **Se quedan**) y corrige lo que quieras con ✓ o 🗑.
+   Lo que corrijas queda guardado para siempre.
+4. **Mover a la papelera.** La campana tachada da de baja de esa lista (one-click RFC 8058, correo o enlace).
+
+**Limpiar sin revisar** hace todo de una vez y borra solo lo claramente promocional. **Solo simular** muestra
+lo que haría sin tocar el buzón.
+
+**Progreso.** La barra avanza por correos reales: muestra el porcentaje, cuántos van de cuántos, el
+remitente que se revisa y el tiempo restante. En Windows también se ve en la barra de tareas y en Android
+en la notificación. Si paras, se corta internet o cierras la app, aparece **Continuar** y sigue desde donde
+quedó.
+
+### Lo que nunca se borra
+
+- Bancos, facturas, recibos, pagos, códigos 2FA y alertas de seguridad (regex de protección, en **Ajustes → Reglas**).
+- Tus reglas por remitente.
+- Conversaciones: respuestas e hilos donde escribiste.
+- Lo que queda "En duda".
+
+Borrar es **mover a la Papelera** (recuperable). Si no se encuentra la Papelera o el servidor no soporta
+MOVE/UIDPLUS, la app no borra nada. Los correos no se marcan como leídos.
+
+## Conectar el correo
+
+- **Gmail · Contraseña de app (lo más fácil):** requiere la verificación en 2 pasos. Créala en
+  <https://myaccount.google.com/apppasswords> y pégala.
+- **Gmail · Cuenta de Google:** usa tu propio cliente OAuth. Hay que habilitar la Gmail API y crear un
+  "ID de cliente → App de escritorio" en Google Cloud Console. Los pasos están en la app.
+- **Yahoo / iCloud:** contraseña de aplicación de esa cuenta.
+- **Otro:** servidor IMAP (y SMTP para las bajas por correo).
+
+Outlook/Hotmail no está soportado porque Microsoft ya no acepta contraseñas por IMAP.
+
+## Arquitectura
+
+```
+public/            interfaz (HTML + CSS con tokens + JS, sin build)
+server.js          servidor local 127.0.0.1 + SSE; start({ port }) lo usan Windows y Android
+lib/engine.js      trabajos por lotes de fecha, con progreso guardado
+lib/llm.js         puntaje 0-100 (IA integrada u Ollama)
+lib/runtime.js     IA integrada: descarga del modelo y proceso llama-server
+lib/models.js      catálogo de modelos (URL fija a un commit + sha256)
+desktop/           app de Windows (Electron) e instalador (build/installer.nsh: chequeo de RAM)
+android/           app de Android: WebView + Node.js (nodejs-mobile) + llama-server arm64
 ```
 
-Abrí <http://localhost:8765>. La primera vez se abre **⚙ Configuración** para conectar tu correo.
+Es el mismo motor en todas las plataformas. En Android, Node corre dentro de la app en un servicio en primer
+plano: la limpieza sigue con la pantalla apagada y el avance se ve en la notificación.
 
-**Sobre el modelo:** en **⚙ Configuración → LLM**, **🧪 Probar LLM** comprueba dos cosas: que el modelo
-distinga una promoción de un correo personal, y que termine de "pensar" un caso dudoso. Medido en una
-RTX 4070 de 8 GB:
-- `qwen3.5:9b` clasifica bien en modo rápido, pero al pensar no termina ni con 2048 tokens (más de un
-  minuto por correo).
-- Un derivado más escueto (`ornith:9b`, de la misma familia) responde pensando en unos 10 segundos.
+## Compilar
 
-Si el modelo se corta pensando, el trabajo desactiva solo esa fase y sigue con el puntaje rápido. También
-podés desmarcar **Pensar los dudosos**.
+```bash
+npm install
+npm test                 # 55 pruebas con IMAP/SMTP en memoria; no tocan ningún buzón real
+npm start                # versión navegador en http://localhost:8765
+npm run app              # app de escritorio sin empaquetar
+npm run dist:win         # → dist/NoniMail-Cleaner-Setup-3.0.0.exe
+```
 
-## Conectar tu correo
+**Android:** requiere el Android SDK (platform 35, build-tools 35, NDK 27.2, CMake 3.22.1) y JDK 17.
 
-En **⚙ Configuración → Cuenta** elegí una de estas tres opciones y usá **🔌 Probar conexión** antes de **💾 Guardar**.
+```bash
+node scripts/fetch-llama.js android-arm64
+# bajar nodejs-mobile-v18.20.4-android.zip a vendor/.dl/ (la URL está en scripts/android-prepare.js)
+npm run android:prepare
+cd android && gradlew assembleRelease   # → app/build/outputs/apk/release/app-release.apk
+```
 
-### Gmail · Conectar con Google (recomendado)
+La firma usa `android/keystore.properties`, que no se versiona. Sin ese archivo, el APK se firma con la clave
+de depuración. **Respalda `android/keystore/`:** sin esa clave no se puede publicar una actualización que se
+instale encima de la anterior.
 
-Cada persona usa **su propio** cliente de Google. Así no hay una app compartida que Google tenga que
-auditar, y tus credenciales no pasan por nadie más. Es una sola vez y lleva unos 10 minutos:
+**Otras herramientas:**
+- `node scripts/demo-imap.js` levanta un buzón de prueba con 154 correos sintéticos (testuser / testpass).
+- `node scripts/bench-llm.js <modelo>` mide un modelo.
 
-1. En [Google Cloud Console](https://console.cloud.google.com/projectcreate) creá un proyecto.
-2. En **APIs y servicios → Biblioteca**, habilitá la **Gmail API**.
-3. En **Pantalla de consentimiento de OAuth**:
-   - Tipo **Externo**.
-   - En **Permisos**, agregá `https://mail.google.com/`.
-4. En **Público**, tocá **Publicar app** (estado "En producción"). En estado "En prueba", Google corta el
-   acceso cada 7 días. No hace falta verificar la app: es solo tuya.
-5. En **Credenciales → ID de cliente de OAuth**:
-   - Tipo **App de escritorio**.
-   - Copiá el **Client ID** y el **Client Secret** en el panel.
-6. Tocá **Conectar con Google** y aceptá. Google avisará que la app no está verificada: es la tuya,
-   entrá por **Configuración avanzada**.
+## Datos locales
 
-El permiso `https://mail.google.com/` es el que exige Google para IMAP y SMTP. La app solo lee, mueve
-a la Papelera y envía correos de baja.
-
-### Gmail · contraseña de aplicación
-
-Requiere la verificación en 2 pasos. Creá una en <https://myaccount.google.com/apppasswords> y
-pegala junto con tu correo.
-
-### Otro proveedor (IMAP)
-
-Yahoo, iCloud y Zoho ya vienen configurados. Para Carbonio, cPanel o cualquier otro, cargá a mano
-el servidor IMAP (y SMTP, para las bajas por correo).
-
-**Outlook/Hotmail no está soportado:** Microsoft ya no acepta contraseñas por IMAP/SMTP.
-
-## Uso
-
-1. **🔄 Escanear**: lee el rango elegido, agrupa por remitente y puntúa cada uno. No borra nada.
-   Ajustá la **dureza** y corregí con **Conservar** / **Descartar**, que queda guardado para siempre.
-2. **▶ Ejecutar**:
-   - Mueve a la Papelera los correos de los remitentes descartados, en el mismo rango.
-   - Da de baja a los marcados en la cola. Prueba en orden: *one-click* (RFC 8058), correo (`mailto:`)
-     y enlace.
-3. **⚡ Limpiar TODO**: hace todo de corrido, borrando solo lo claramente promocional.
-
-**⚙ Configuración** reúne todas las variables:
-- **Cuenta y carpetas.**
-- **LLM**:
-  - Dirección de Ollama y modelo. Se elige entre los instalados; **🧪 Probar LLM** comprueba que
-    distinga una promoción de un correo personal.
-  - Pensamiento de dudosos, contexto y paralelismo.
-- **Limpieza**: días por lote, dureza, margen de duda, protección de conversaciones, tus otras direcciones.
-- **Servidor**: el puerto.
-
-**📜 Reglas** muestra y edita los patrones de protección y de ruido, y el prompt del LLM.
-
-## Archivos locales
-
-Ninguno de estos archivos se versiona (están en `.gitignore`):
-
-| Archivo | Contiene |
+| Plataforma | Carpeta |
 |---|---|
-| `config.json` | Configuración, sin secretos. Se crea desde `config.example.json` |
-| `secrets.json` | Contraseña IMAP, Client Secret y token de Google. **No lo compartas** |
-| `senders.json` | Tus reglas por remitente y las bajas hechas |
-| `progress.json` | Trabajos sin terminar (para "Continuar") |
-| `logs/` | Registro de cada corrida, con asuntos y remitentes reales |
+| Windows | `%APPDATA%\NoniMail Cleaner` |
+| Android | memoria interna de la app |
+| `npm start` | la carpeta del proyecto, o `NONIMAIL_DATA_DIR` |
 
-Para guardarlos en otra carpeta, usá `NONIMAIL_DATA_DIR=/ruta npm start`.
+En esa carpeta están `config.json`, `secrets.json` (contraseña o token: **no lo compartas**),
+`senders.json`, `progress.json`, `logs/` y `models/`.
 
 ## Seguridad
 
-- El servidor escucha solo en `127.0.0.1`. Rechaza pedidos con un `Host` ajeno (DNS rebinding) y POST
-  de otro origen o sin `Content-Type: application/json` (CSRF).
-- La API nunca devuelve secretos; el panel solo muestra "guardada".
-- Los enlaces de baja vienen del remitente: solo se abren si son `https` y nunca hacia direcciones de tu
-  red local.
-
-## Actualizar desde la versión 1.x (Apps Script)
-
-La 2.0 ya no usa el puente de Google Apps Script. Al arrancar:
-- `config.json` se migra solo y queda un respaldo `config.json.bak-<fecha>`.
-- Después conectás tu correo desde **⚙ Configuración**.
-
-**Importante:** archivá el despliegue viejo en <https://script.google.com>, en **Implementar → Gestionar
-implementaciones → Archivar**. Mientras siga activo, su URL más la clave dan acceso a tu buzón.
-
-## Pruebas
-
-```bash
-npm test
-```
-
-Usan un servidor IMAP en memoria ([hoodiecrow-imap](https://github.com/andris9/hoodiecrow)), un SMTP
-local y servidores falsos de Google y Ollama. No tocan ningún buzón real.
+- El servidor escucha solo en `127.0.0.1`. Rechaza un `Host` ajeno (DNS rebinding) y los POST de otro origen
+  (CSRF).
+- En las apps de Windows y Android, el servidor exige además un token secreto que se genera en cada arranque.
+  La ventana lo manda como cookie HttpOnly. Así ninguna otra app del celular o de la PC puede usar la API.
+  `npm start`, en el navegador, no usa token.
+- La API nunca devuelve secretos.
+- Los enlaces de baja solo se abren si son `https` y nunca hacia la red local.
+- La app de escritorio usa `contextIsolation` y `sandbox`. Los enlaces externos se abren en el navegador del
+  sistema.
 
 ## Licencia
 
-El código propio de este repositorio no lleva licencia declarada: todos los derechos reservados.
-Para abrirlo, agregá un archivo `LICENSE`. Las dependencias y sus licencias están en
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+El código propio no lleva licencia declarada: todos los derechos reservados. Los componentes de terceros
+están en [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+

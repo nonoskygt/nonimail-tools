@@ -23,15 +23,21 @@
     "clientId": ""
   },
   "ollamaUrl": "http://localhost:11434",
-  "model": "qwen3.5:9b",
+  "model": "",
   "llm": {
+    "provider": "local",
     "numCtx": 4096,
     "parallel": 1,
-    "think": true,
+    "think": false,
     "thinkNumPredict": 2048,
     "thinkNumCtx": 8192,
     "doubtLow": 35,
     "doubtHigh": 65
+  },
+  "local": {
+    "model": "",
+    "ctx": 4096,
+    "threads": 0
   },
   "cleaning": {
     "daysBack": 30,
@@ -39,7 +45,7 @@
     "fetchChunk": 100,
     "dureza": 50,
     "band": 12,
-    "bodyMaxChars": 2500,
+    "bodyMaxChars": 1000,
     "protectConversations": true,
     "myAddresses": [],
     "autoUnsub": true,
@@ -51,5 +57,5 @@
     "from": "(noreply|no-reply|donotreply|marketing|newsletter|promociones|promotions|deals|hello@|news@|info@|updates@|notifications@|mailer|campaign)",
     "body": "(unsubscribe|darse de baja|cancelar suscripci|view in browser|ver en navegador|click here|haz click aqui|shop now|comprar ahora|act now|don.t miss|no te lo pierdas)"
   },
-  "llmPrompt": "Sos un asistente que limpia la bandeja de entrada de una persona. Evalua cuanto RUIDO/PROMOCIONAL es un remitente para el usuario y devolve SOLO un numero entero de 0 a 100 (sin texto):\n- 100 = basura segura (marketing, ofertas, newsletters, publicidad, novedades de productos, notificaciones automaticas de redes sociales, 'tienes N mensajes', encuestas).\n- 0 = importante/valioso (persona real, factura, recibo, comprobante, estado de cuenta, banco, alerta de seguridad, codigo 2FA, pedido/envio que el propio usuario realizo, cita, tramite).\n- Valores medios (40-60) = genuinamente dudoso.\n\nConsidera la senal BULK (si trae opcion de baja, es envio masivo -> sube el puntaje), salvo que el contenido sea claramente transaccional/importante.\n\nEjemplos (responde solo el numero):\nFROM: deals@tienda.com | SUBJECT: 50% OFF | BULK: si -> 95\nFROM: notifications@redsocial.com | SUBJECT: tienes 3 invitaciones | BULK: si -> 90\nFROM: news@marca.com | SUBJECT: Novedades de la semana | BULK: si -> 85\nFROM: editor@ong.org | SUBJECT: newsletter de activismo | BULK: si -> 55\nFROM: no-reply@mirouter.com | SUBJECT: Config Created | BULK: no -> 45\nFROM: pedidos@tienda.com | SUBJECT: Tu pedido fue enviado | BULK: si -> 20\nFROM: facturacion@proveedor.com | SUBJECT: Factura #2026 | BULK: no -> 5\nFROM: noreply@banco.com | SUBJECT: Tu codigo es 482910 | BULK: no -> 3\nFROM: persona@gmail.com | SUBJECT: Te escribo desde... | BULK: no -> 2"
+  "llmPrompt": "Sos un asistente que limpia la bandeja de entrada de una persona. Evalua cuanto RUIDO/PROMOCIONAL es un remitente para el usuario y devolve SOLO un numero entero de 0 a 100 (sin texto):\n- 100 = basura segura (marketing, ofertas, newsletters, publicidad, novedades de productos, notificaciones automaticas de redes sociales, 'tienes N mensajes', encuestas).\n- 0 = importante/valioso (persona real, factura, recibo, comprobante, estado de cuenta, banco, alerta de seguridad, codigo 2FA, pedido/envio que el propio usuario realizo, cita, tramite).\n- Valores medios (40-60) = genuinamente dudoso.\n\nConsidera la senal BULK (si trae opcion de baja, es envio masivo -> sube el puntaje), salvo que el contenido sea claramente transaccional/importante.\n\nEjemplos (responde solo el numero):\nFROM: deals@tienda.com | SUBJECT: 50% OFF | BULK: si -> 95\nFROM: notifications@redsocial.com | SUBJECT: tienes 3 invitaciones | BULK: si -> 90\nFROM: news@marca.com | SUBJECT: Novedades de la semana | BULK: si -> 85\nFROM: editor@ong.org | SUBJECT: newsletter de activismo | BULK: si -> 55\nFROM: no-reply@mirouter.com | SUBJECT: Config Created | BULK: no -> 45\nFROM: pedidos@tienda.com | SUBJECT: Tu pedido fue enviado | BULK: si -> 20\nFROM: facturacion@proveedor.com | SUBJECT: Factura #2026 | BULK: no -> 5\nFROM: noreply@banco.com | SUBJECT: Tu codigo es 482910 | BULK: no -> 3\nFROM: checkin@aerolinea.com | SUBJECT: Tu pase de abordar | BULK: no -> 3\nFROM: citas@clinica.com | SUBJECT: Recordatorio de tu cita | BULK: no -> 5\nFROM: polizas@aseguradora.com | SUBJECT: Renovación de tu póliza | BULK: no -> 8\nFROM: amigo@gmail.com | SUBJECT: Re: lo del jueves | BULK: no -> 2\nFROM: persona@gmail.com | SUBJECT: Te escribo desde... | BULK: no -> 2"
 }

@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Firma: android/keystore.properties (fuera de git). Sin él, el APK de release se firma con la clave de depuración.
+def ksFile = rootProject.file('keystore.properties')
+def ks = new Properties()
+if (ksFile.exists()) ksFile.withInputStream { ks.load(it) }
+
+android {
+    namespace 'com.nonosky.nonimail'
+    compileSdk 35
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'com.nonosky.nonimail'
+        minSdk 26
+        targetSdk 35
+        versionCode 300
+        versionName '3.0.0'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } }
+    }
+
+    signingConfigs {
+        release {
+            if (ksFile.exists()) {
+                storeFile rootProject.file(ks['storeFile'])
+                storePassword ks['storePassword']
+                keyAlias ks['keyAlias']
+                keyPassword ks['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    externalNativeBuild {
+        cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' }
+    }
+
+    // llama-server va como "biblioteca" para que Android lo extraiga a nativeLibraryDir, donde sí se puede ejecutar
+    // libnode.so llega por jniLibs y también como dependencia del puente JNI: se empaqueta una vez
+    packaging { jniLibs { useLegacyPackaging true; pickFirsts += ['**/libnode.so'] } }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

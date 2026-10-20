@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El mismo dibujo que public/assets/icon.svg, centrado en la zona segura del ícono adaptativo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:scaleX="0.18" android:scaleY="0.18" android:translateX="3.96" android:translateY="12.24">
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M132,176 H340 A40,40 0 0 1 380,216 V348 A40,40 0 0 1 340,388 H132 A40,40 0 0 1 92,348 V216 A40,40 0 0 1 132,176 Z" />
+        <path android:strokeColor="#2563EB" android:strokeWidth="30" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M132,218 L236,294 L340,218" />
+        <path android:strokeColor="#2563EB" android:strokeWidth="36" android:strokeLineJoin="round"
+            android:pathData="M376,76 C384,124 400,140 448,148 C400,156 384,172 376,220 C368,172 352,156 304,148 C352,140 368,124 376,76 Z" />
+        <path android:fillColor="#6EE7B7"
+            android:pathData="M376,76 C384,124 400,140 448,148 C400,156 384,172 376,220 C368,172 352,156 304,148 C352,140 368,124 376,76 Z" />
+        <path android:fillColor="#6EE7B7"
+            android:pathData="M438,236 C441,254 446,259 464,262 C446,265 441,270 438,288 C435,270 430,265 412,262 C430,259 435,254 438,236 Z" />
+    </group>
+</vector>

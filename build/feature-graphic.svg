@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <rect width="1024" height="500" fill="#F8FAFC"/>
+  <!-- franja de producto: progreso -->
+  <rect x="512" y="0" width="512" height="500" fill="#2563EB"/>
+  <g transform="translate(600 118)">
+    <rect width="336" height="264" rx="22" fill="#FFFFFF"/>
+    <text x="24" y="52" font-family="Segoe UI, Inter, sans-serif" font-size="18" font-weight="700" fill="#0F172A">Analizando</text>
+    <text x="24" y="118" font-family="Segoe UI, Inter, sans-serif" font-size="58" font-weight="800" fill="#0F172A">72<tspan font-size="30" fill="#64748B">%</tspan></text>
+    <rect x="24" y="138" width="288" height="12" rx="6" fill="#F1F5F9"/>
+    <rect x="24" y="138" width="207" height="12" rx="6" fill="#2563EB"/>
+    <rect x="24" y="172" width="136" height="66" rx="12" fill="#FEF2F2"/>
+    <text x="40" y="206" font-family="Segoe UI, Inter, sans-serif" font-size="24" font-weight="800" fill="#B91C1C">1.284</text>
+    <text x="40" y="226" font-family="Segoe UI, Inter, sans-serif" font-size="13" font-weight="600" fill="#475569">A borrar</text>
+    <rect x="176" y="172" width="136" height="66" rx="12" fill="#F0FDF4"/>
+    <text x="192" y="206" font-family="Segoe UI, Inter, sans-serif" font-size="24" font-weight="800" fill="#15803D">412</text>
+    <text x="192" y="226" font-family="Segoe UI, Inter, sans-serif" font-size="13" font-weight="600" fill="#475569">Se quedan</text>
+  </g>
+  <!-- marca -->
+  <g transform="translate(88 118) scale(0.22)">
+    <rect width="512" height="512" rx="116" fill="#2563EB"/>
+    <rect x="92" y="176" width="288" height="212" rx="40" fill="#FFFFFF"/>
+    <path d="M132 218 L236 294 L340 218" fill="none" stroke="#2563EB" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M376 76 C384 124 400 140 448 148 C400 156 384 172 376 220 C368 172 352 156 304 148 C352 140 368 124 376 76 Z" fill="#6EE7B7" stroke="#2563EB" stroke-width="18" stroke-linejoin="round" paint-order="stroke"/>
+  </g>
+  <text x="88" y="300" font-family="Segoe UI, Inter, sans-serif" font-size="52" font-weight="800" fill="#0F172A" letter-spacing="-1.5">NoniMail</text>
+  <text x="88" y="346" font-family="Segoe UI, Inter, sans-serif" font-size="30" font-weight="500" fill="#64748B">Cleaner</text>
+  <text x="88" y="396" font-family="Segoe UI, Inter, sans-serif" font-size="21" font-weight="500" fill="#334155">Tu bandeja limpia, con IA en tu equipo.</text>
+</svg>

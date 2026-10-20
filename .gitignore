@@ -26,6 +26,17 @@ config.local.json
 
 # === Entorno ===
 node_modules/
+# Binarios descargados (scripts/fetch-llama.js) y salidas de empaquetado
+vendor/
+dist/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/app/src/main/jniLibs/
+android/app/src/main/assets/nodejs-project.zip
+android/app/.cxx/
+android/app/libnode/
 # Caché local de graphify (grafo del código generado en esta máquina)
 graphify-out/
 npm-debug.log*
@@ -33,3 +44,8 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+.claude/
+android/keystore/
+android/keystore.properties
+# Datos del servidor de desarrollo (scripts/dev.js)
+dev-data/

@@ -57,7 +57,7 @@ async function setup({ daysBack = 365, windowDays = 30, retry = [20, 20, 20], fe
   const imap = await S.startImap(mailbox());
   const smtpSrv = await S.startSmtp();
   const cfg = C.deepDefaults(C.DEFAULTS, {
-    model: 'm', ollamaUrl: ol.url, llmPrompt: 'P',
+    model: 'm', ollamaUrl: ol.url, llmPrompt: 'P', llm: { provider: 'ollama', think: true },
     account: { type: 'imap', email: 'yo@test.local' },
     cleaning: { daysBack, windowDays, fetchChunk, dryRun: false },
     heuristics: { keepOverride: 'factura' },
@@ -95,6 +95,14 @@ test('auto dry-run: no mueve nada y cuenta lo que borraría', async () => {
     assert.equal(ev.windowCount, 13);
     assert.equal(ev.totals.deleted, 6, '5 ofertas + el dudoso (85 al pensar)');
     assert.equal(t.smtpSrv.messages.length, 0, 'dry-run no da de baja');
+    // barra de progreso: por correos reales, nunca retrocede y termina en 100 %
+    const prog = t.events.filter(e => e.t === 'progress' && e.job.running && e.job.emailsTotal).map(e => e.job);
+    assert.ok(prog.length > 3, 'hubo avances intermedios');
+    const pcts = prog.map(j => j.percent);
+    assert.deepEqual(pcts, [...pcts].sort((a, b) => a - b), `el porcentaje no retrocede: ${pcts.join(',')}`);
+    assert.equal(ev.percent, 100);
+    assert.equal(ev.emailsDone, ev.emailsTotal);
+    assert.equal(ev.emailsTotal, ev.totals.seen, 'el total contado al inicio coincide con lo revisado');
   } finally { await t.cleanup(); }
 });
 
